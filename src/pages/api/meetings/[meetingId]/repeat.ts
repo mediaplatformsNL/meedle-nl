@@ -34,14 +34,19 @@ export default async function handler(
     return;
   }
 
-  const repeatResult = repeatSavedMeeting(authenticatedUserId, meetingId);
-  if (!repeatResult) {
-    res.status(404).json({ message: "Meeting niet gevonden of niet toegankelijk voor deze gebruiker." });
-    return;
-  }
+  try {
+    const repeatResult = await repeatSavedMeeting(authenticatedUserId, meetingId);
+    if (!repeatResult) {
+      res.status(404).json({ message: "Meeting niet gevonden of niet toegankelijk voor deze gebruiker." });
+      return;
+    }
 
-  res.status(201).json({
-    meetingId: repeatResult.session.meetingId,
-    expiresAt: repeatResult.expiresAt,
-  });
+    res.status(201).json({
+      meetingId: repeatResult.session.meetingId,
+      expiresAt: repeatResult.expiresAt,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Meeting kon niet worden herhaald." });
+  }
 }

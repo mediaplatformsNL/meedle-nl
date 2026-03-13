@@ -21,6 +21,18 @@ De Google Maps en Supabase instellingen zijn geconfigureerd via Next.js runtime 
 
 > `SUPABASE_URL` en `SUPABASE_ANON_KEY` worden automatisch doorgezet naar de publieke varianten die de browser gebruikt.
 
+### Supabase database schema
+
+Voer `supabase-schema.sql` uit in de Supabase SQL editor om de tabellen aan te maken:
+
+- `meetings`
+- `meeting_participants`
+- `votes`
+- `comments`
+
+De API-routes onder `src/pages/api/meetings/**` slaan meetingdata op in deze tabellen en halen data op via `meetingId`.  
+Waar beschikbaar wordt de ingelogde gebruiker (`auth.users.id`) gekoppeld aan meetings, stemmen en reacties.
+
 ## Auth + meetings
 
 - Eenvoudige login via e-mail (Supabase magic link) beschikbaar in de app.

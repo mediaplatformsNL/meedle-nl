@@ -175,9 +175,14 @@ export default async function handler(
     return;
   }
 
-  const { session, expiresAt } = createMeetingSession(createInput, authenticatedUserId);
-  res.status(201).json({
-    meetingId: session.meetingId,
-    expiresAt,
-  });
+  try {
+    const { session, expiresAt } = await createMeetingSession(createInput, authenticatedUserId);
+    res.status(201).json({
+      meetingId: session.meetingId,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Meeting kon niet worden opgeslagen." });
+  }
 }

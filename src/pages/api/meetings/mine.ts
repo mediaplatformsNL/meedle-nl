@@ -19,6 +19,11 @@ export default async function handler(
     return;
   }
 
-  const savedMeetings = getSavedMeetingsForUser(authenticatedUserId);
-  res.status(200).json(savedMeetings);
+  try {
+    const savedMeetings = await getSavedMeetingsForUser(authenticatedUserId);
+    res.status(200).json(savedMeetings);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Opgeslagen meetings konden niet worden opgehaald." });
+  }
 }

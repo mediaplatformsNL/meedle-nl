@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { addMeetingVote, getMeetingSession } from "../../../../lib/meeting-session-store";
+import { getAuthenticatedUserId } from "../../../../lib/api-auth";
 import { MAX_VOTE_COMMENT_LENGTH } from "../../../../lib/meeting-session";
 import type { AddMeetingVoteInput, MeetingSessionData } from "../../../../lib/meeting-session";
 
@@ -48,7 +49,7 @@ function toAddVoteInput(body: unknown): { input: AddMeetingVoteInput } | { error
   };
 }
 
-export default function handler(
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<MeetingSessionData | { message: string }>,
 ) {
@@ -73,23 +74,29 @@ export default function handler(
   }
   const addVoteInput = addVoteInputResult.input;
 
-  const existingSession = getMeetingSession(meetingId);
-  if (!existingSession) {
-    res.status(404).json({ message: "Meeting-sessie niet gevonden of verlopen." });
-    return;
-  }
+  try {
+    const existingSession = await getMeetingSession(meetingId);
+    if (!existingSession) {
+      res.status(404).json({ message: "Meeting-sessie niet gevonden of verlopen." });
+      return;
+    }
 
-  const placeExists = existingSession.suggestedPlaces.some((place) => place.id === addVoteInput.placeId);
-  if (!placeExists) {
-    res.status(400).json({ message: "Gekozen locatie bestaat niet in deze meeting." });
-    return;
-  }
+    const placeExists = existingSession.suggestedPlaces.some((place) => place.id === addVoteInput.placeId);
+    if (!placeExists) {
+      res.status(400).json({ message: "Gekozen locatie bestaat niet in deze meeting." });
+      return;
+    }
 
-  const voteResult = addMeetingVote(meetingId, addVoteInput);
-  if (!voteResult) {
-    res.status(404).json({ message: "Meeting-sessie niet gevonden of verlopen." });
-    return;
-  }
+    const authenticatedUserId = await getAuthenticatedUserId(req);
+    const voteResult = await addMeetingVote(meetingId, addVoteInput, authenticatedUserId);
+    if (!voteResult) {
+      res.status(404).json({ message: "Meeting-sessie niet gevonden of verlopen." });
+      return;
+    }
 
-  res.status(200).json(voteResult.session);
+    res.status(200).json(voteResult.session);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Stem of reactie kon niet worden opgeslagen." });
+  }
 }
