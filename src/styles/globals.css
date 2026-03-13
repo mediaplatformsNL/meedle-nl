@@ -126,6 +126,13 @@ main {
   font-size: 0.8rem;
 }
 
+.participant-row__coordinates {
+  margin: 0;
+  color: #14532d;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .participant-row button,
 .participants-panel__add {
   border: none;
@@ -155,6 +162,11 @@ main {
 .participants-panel__add:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.participants-panel__continue:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .participants-panel__validation-message,
