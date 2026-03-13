@@ -191,6 +191,48 @@ main {
   font-size: 0.9rem;
 }
 
+.participants-panel__places {
+  border-top: 1px solid #dbe4f0;
+  padding-top: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.participants-panel__places h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.participants-panel__places ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.participants-panel__places li {
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.participants-panel__places p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #1e293b;
+}
+
+.participants-panel__place-name {
+  font-weight: 700;
+}
+
 @media (max-width: 760px) {
   .participants-panel {
     top: 0.5rem;
