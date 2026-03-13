@@ -6,17 +6,37 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#__next {
+  height: 100%;
+}
+
 body {
   margin: 0;
   font-family: Arial, sans-serif;
   background: #f7f7f7;
   color: #111;
+  overflow: hidden;
 }
 
 main {
   max-width: 720px;
   margin: 2rem auto;
   padding: 0 1rem;
+}
+
+.fullscreen-page {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.map-fullscreen {
+  width: 100%;
+  height: 100%;
 }
 
 .card {

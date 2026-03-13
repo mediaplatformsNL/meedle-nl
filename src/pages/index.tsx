@@ -1,5 +1,5 @@
 import Head from "next/head";
-import MapConfigCard from "../components/MapConfigCard";
+import Map from "../components/Map";
 
 export default function HomePage() {
   return (
@@ -8,13 +8,11 @@ export default function HomePage() {
         <title>Meedle NL</title>
         <meta
           name="description"
-          content="Next.js basisapp voor een eerlijke en bereikbare vergaderlocatie."
+          content="Fullscreen Google Maps kaart gecentreerd op Nederland."
         />
       </Head>
-      <main>
-        <h1>Meedle NL</h1>
-        <p>Nieuwe Next.js applicatie met TypeScript en een duidelijke src-structuur.</p>
-        <MapConfigCard />
+      <main className="fullscreen-page">
+        <Map />
       </main>
     </>
   );
