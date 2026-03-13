@@ -68,7 +68,11 @@ function extractLocation(place: PlacesApiResult): Coordinate | null {
   const lat = place.geometry?.location?.lat;
   const lng = place.geometry?.location?.lng;
 
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (typeof lat !== "number" || !Number.isFinite(lat)) {
+    return null;
+  }
+
+  if (typeof lng !== "number" || !Number.isFinite(lng)) {
     return null;
   }
 
