@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { addMeetingVote, getMeetingSession } from "../../../../lib/meeting-session-store";
+import { MAX_VOTE_COMMENT_LENGTH } from "../../../../lib/meeting-session";
 import type { AddMeetingVoteInput, MeetingSessionData } from "../../../../lib/meeting-session";
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -15,27 +16,35 @@ function getMeetingIdFromQuery(queryValue: string | string[] | undefined): strin
   return meetingId.trim().length > 0 ? meetingId.trim() : null;
 }
 
-function toAddVoteInput(body: unknown): AddMeetingVoteInput | null {
+function toAddVoteInput(body: unknown): { input: AddMeetingVoteInput } | { error: string } {
   if (!isObject(body)) {
-    return null;
+    return { error: "Ongeldige stemdata ontvangen." };
   }
 
   if (typeof body.participantName !== "string" || body.participantName.trim().length === 0) {
-    return null;
+    return { error: "Naam is verplicht om een stem/reactie te plaatsen." };
   }
 
   if (typeof body.placeId !== "string" || body.placeId.trim().length === 0) {
-    return null;
+    return { error: "Kies een geldige locatie om te stemmen." };
   }
 
   if (body.comment !== undefined && body.comment !== null && typeof body.comment !== "string") {
-    return null;
+    return { error: "Reactie moet tekst zijn." };
+  }
+
+  const normalizedComment =
+    typeof body.comment === "string" && body.comment.trim().length > 0 ? body.comment.trim() : null;
+  if (normalizedComment && normalizedComment.length > MAX_VOTE_COMMENT_LENGTH) {
+    return { error: `Reactie mag maximaal ${MAX_VOTE_COMMENT_LENGTH} tekens bevatten.` };
   }
 
   return {
-    participantName: body.participantName,
-    placeId: body.placeId,
-    comment: typeof body.comment === "string" && body.comment.trim().length > 0 ? body.comment : null,
+    input: {
+      participantName: body.participantName,
+      placeId: body.placeId,
+      comment: normalizedComment,
+    },
   };
 }
 
@@ -55,14 +64,14 @@ export default function handler(
     return;
   }
 
-  const addVoteInput = toAddVoteInput(req.body);
-  if (!addVoteInput) {
+  const addVoteInputResult = toAddVoteInput(req.body);
+  if ("error" in addVoteInputResult) {
     res.status(400).json({
-      message:
-        "Ongeldige stemdata ontvangen. Naam en locatie-id zijn verplicht, reactie is optioneel.",
+      message: addVoteInputResult.error,
     });
     return;
   }
+  const addVoteInput = addVoteInputResult.input;
 
   const existingSession = getMeetingSession(meetingId);
   if (!existingSession) {

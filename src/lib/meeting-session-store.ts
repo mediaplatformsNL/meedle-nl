@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { MAX_VOTE_COMMENT_LENGTH } from "./meeting-session";
 import type {
   AddMeetingVoteInput,
   MeetingLocationVote,
@@ -95,7 +96,7 @@ export function addMeetingVote(
     participantName: input.participantName.trim(),
     placeId: votedPlace.id,
     placeName: votedPlace.name,
-    comment: input.comment ? input.comment.trim() : null,
+    comment: input.comment ? input.comment.trim().slice(0, MAX_VOTE_COMMENT_LENGTH) : null,
     createdAt: new Date(nowMs).toISOString(),
   };
 
