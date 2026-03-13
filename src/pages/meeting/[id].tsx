@@ -41,35 +41,6 @@ interface GoogleMapsPolylineInstance {
   setMap(map: GoogleMapsMapInstance | null): void;
 }
 
-declare global {
-  interface Window {
-    google?: {
-      maps?: {
-        Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMapsMapInstance;
-        Marker: new (options: {
-          map: GoogleMapsMapInstance;
-          position: LatLngLiteral;
-          title?: string;
-          icon?: string;
-        }) => GoogleMapsMarkerInstance;
-        Polyline: new (options: {
-          map: GoogleMapsMapInstance;
-          path: LatLngLiteral[];
-          strokeColor: string;
-          strokeOpacity: number;
-          strokeWeight: number;
-          icons?: Array<{
-            icon: GoogleMapsPolylineSymbol;
-            offset?: string;
-            repeat?: string;
-          }>;
-        }) => GoogleMapsPolylineInstance;
-        LatLngBounds: new () => GoogleMapsLatLngBoundsInstance;
-      };
-    };
-  }
-}
-
 function loadGoogleMapsScript(apiKey: string): Promise<void> {
   if (typeof window === "undefined" || window.google?.maps) {
     return Promise.resolve();
