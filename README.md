@@ -16,6 +16,9 @@ src/
 De Google Maps en Supabase instellingen zijn geconfigureerd via Next.js runtime env:
 
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSyB5NCPpj4QeNbyie8ZIPa5aA6cS4mcYLEk`
+- `GOOGLE_MAPS_API_KEY=AIzaSyB5NCPpj4QeNbyie8ZIPa5aA6cS4mcYLEk`
+- `GOOGLE_CALENDAR_CLIENT_ID={{GOOGLE_CALENDAR_CLIENT_ID}}`
+- `GOOGLE_CALENDAR_CLIENT_SECRET={{GOOGLE_CALENDAR_CLIENT_SECRET}}`
 - `SUPABASE_URL={{SUPABASE_URL}}`
 - `SUPABASE_ANON_KEY={{SUPABASE_ANON_KEY}}`
 
@@ -38,6 +41,23 @@ Waar beschikbaar wordt de ingelogde gebruiker (`auth.users.id`) gekoppeld aan me
 - Eenvoudige login via e-mail (Supabase magic link) beschikbaar in de app.
 - Alleen ingelogde gebruikers kunnen meetings opslaan.
 - Pagina `/meetings` toont per gebruiker opgeslagen meetings (datum, deelnemers, locaties) en bevat een knop om een meeting te herhalen.
+- Bij een definitieve afspraak kan de ingelogde organisator via **Naar Google Calendar** direct een event aanmaken.
+
+## Google Calendar koppeling (OAuth)
+
+Voor de knop **Naar Google Calendar** zijn bovenstaande `GOOGLE_CALENDAR_CLIENT_ID` en
+`GOOGLE_CALENDAR_CLIENT_SECRET` nodig.
+
+### Vereiste scope
+
+- `https://www.googleapis.com/auth/calendar.events`
+  - Nodig om events te maken en bij te werken in de primaire agenda van de ingelogde Google gebruiker.
+  - De app gebruikt deze scope om een meeting-event te maken met:
+    - starttijd + eindtijd (op basis van gekozen start en duur),
+    - locatie (geselecteerde meetinglocatie),
+    - deelnemersinformatie (namen + vertreklocaties in de eventbeschrijving).
+
+Er worden geen extra Google scopes aangevraagd buiten deze Calendar-scope.
 
 ## Scripts
 

@@ -249,6 +249,20 @@ export async function getMeetingSession(meetingId: string): Promise<MeetingSessi
   return toMeetingSessionData(meetingRow, votes);
 }
 
+export async function getMeetingSessionForOwner(
+  meetingId: string,
+  ownerUserId: string,
+): Promise<MeetingSessionData | null> {
+  const nowMs = Date.now();
+  const meetingRow = await getMeetingRowById(meetingId);
+  if (!meetingRow || meetingRow.ownerUserId !== ownerUserId || isMeetingExpired(meetingRow.expiresAt, nowMs)) {
+    return null;
+  }
+
+  const votes = await getVotesByMeetingId(meetingId);
+  return toMeetingSessionData(meetingRow, votes);
+}
+
 export async function addMeetingVote(
   meetingId: string,
   input: AddMeetingVoteInput,
