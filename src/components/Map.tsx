@@ -138,6 +138,57 @@ interface GeocodingApiResponse {
   }>;
 }
 
+interface CreateGoogleCalendarEventSuccessResponse {
+  requiresOAuth: false;
+  eventId: string;
+  eventHtmlLink: string;
+}
+
+interface CreateGoogleCalendarEventRequiresOAuthResponse {
+  requiresOAuth: true;
+  authorizationUrl: string;
+  message: string;
+}
+
+function isGoogleCalendarOAuthResponse(
+  value: unknown,
+): value is CreateGoogleCalendarEventRequiresOAuthResponse {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const payload = value as Partial<CreateGoogleCalendarEventRequiresOAuthResponse>;
+  return (
+    payload.requiresOAuth === true &&
+    typeof payload.authorizationUrl === "string" &&
+    typeof payload.message === "string"
+  );
+}
+
+function isGoogleCalendarSuccessResponse(
+  value: unknown,
+): value is CreateGoogleCalendarEventSuccessResponse {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const payload = value as Partial<CreateGoogleCalendarEventSuccessResponse>;
+  return (
+    payload.requiresOAuth === false &&
+    typeof payload.eventId === "string" &&
+    typeof payload.eventHtmlLink === "string"
+  );
+}
+
+function extractApiErrorMessage(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const message = (value as { message?: unknown }).message;
+  return typeof message === "string" ? message : null;
+}
+
 function formatPlaceCategory(category: SuitablePlace["type"]): string {
   switch (category) {
     case "restaurant":
@@ -244,6 +295,20 @@ function normalizeParticipantRoutes(
   }
 
   return normalizedRoutes;
+}
+
+function createDefaultMeetingStartDateTimeInputValue(): string {
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  now.setHours(now.getHours() + 1);
+
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 async function fetchDirectionsRoute(
@@ -404,6 +469,13 @@ export default function Map() {
   const [meetingLinkStatusMessage, setMeetingLinkStatusMessage] = useState<string | null>(null);
   const [isGeneratingMeetingLink, setIsGeneratingMeetingLink] = useState(false);
   const [isLoadingMeetingSession, setIsLoadingMeetingSession] = useState(false);
+  const [meetingStartsAtInput, setMeetingStartsAtInput] = useState<string>(
+    createDefaultMeetingStartDateTimeInputValue(),
+  );
+  const [meetingDurationMinutes, setMeetingDurationMinutes] = useState<number>(90);
+  const [isCreatingCalendarEvent, setIsCreatingCalendarEvent] = useState(false);
+  const [calendarStatusMessage, setCalendarStatusMessage] = useState<string | null>(null);
+  const [calendarErrorMessage, setCalendarErrorMessage] = useState<string | null>(null);
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -434,6 +506,13 @@ export default function Map() {
   const canApproveProposal = hasRouteResults && selectedPlace !== null && !isCalculatingRoutes;
   const canGenerateMeetingLink =
     canApproveProposal && isProposalApproved && !isGeneratingMeetingLink && !!user;
+  const canCreateCalendarEvent =
+    !!user &&
+    isProposalApproved &&
+    !!loadedMeetingId &&
+    !!meetingLink &&
+    !isGeneratingMeetingLink &&
+    !isCreatingCalendarEvent;
 
   useEffect(() => {
     let isUnmounted = false;
@@ -727,6 +806,43 @@ export default function Map() {
     };
   }, [loadedMeetingId, router.isReady, router.query.meeting]);
 
+  useEffect(() => {
+    if (!router.isReady) {
+      return;
+    }
+
+    const calendarStatus = Array.isArray(router.query.calendar)
+      ? router.query.calendar[0]
+      : router.query.calendar;
+    if (calendarStatus !== "success" && calendarStatus !== "error") {
+      return;
+    }
+
+    const eventLinkQueryValue = Array.isArray(router.query.calendarEventLink)
+      ? router.query.calendarEventLink[0]
+      : router.query.calendarEventLink;
+    const calendarErrorQueryValue = Array.isArray(router.query.calendarError)
+      ? router.query.calendarError[0]
+      : router.query.calendarError;
+
+    if (calendarStatus === "success") {
+      setCalendarErrorMessage(null);
+      setCalendarStatusMessage(
+        typeof eventLinkQueryValue === "string" && eventLinkQueryValue.length > 0
+          ? `Google Calendar-event aangemaakt: ${eventLinkQueryValue}`
+          : "Google Calendar-event is succesvol aangemaakt.",
+      );
+      return;
+    }
+
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(
+      typeof calendarErrorQueryValue === "string" && calendarErrorQueryValue.length > 0
+        ? calendarErrorQueryValue
+        : "Google Calendar koppeling is mislukt. Probeer opnieuw.",
+    );
+  }, [router.isReady, router.query.calendar, router.query.calendarError, router.query.calendarEventLink]);
+
   function handleAddParticipant() {
     if (hasReachedParticipantLimit) {
       return;
@@ -766,6 +882,8 @@ export default function Map() {
     setIsProposalApproved(false);
     setMeetingLink(null);
     setMeetingLinkStatusMessage(null);
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(null);
     setContinueStatusMessage(null);
   }
 
@@ -803,6 +921,8 @@ export default function Map() {
       setIsProposalApproved(false);
       setMeetingLink(null);
       setMeetingLinkStatusMessage(null);
+      setCalendarStatusMessage(null);
+      setCalendarErrorMessage(null);
     }
     setContinueStatusMessage(null);
   }
@@ -832,6 +952,8 @@ export default function Map() {
       setIsProposalApproved(false);
       setMeetingLink(null);
       setMeetingLinkStatusMessage(null);
+      setCalendarStatusMessage(null);
+      setCalendarErrorMessage(null);
       setContinueStatusMessage(null);
       return;
     }
@@ -847,6 +969,8 @@ export default function Map() {
     setIsProposalApproved(false);
     setMeetingLink(null);
     setMeetingLinkStatusMessage(null);
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(null);
     setContinueStatusMessage(null);
     try {
       const geocodeResults = await Promise.all(
@@ -955,6 +1079,8 @@ export default function Map() {
     setIsProposalApproved(false);
     setMeetingLink(null);
     setMeetingLinkStatusMessage(null);
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(null);
   }
 
   function handleRouteTabChange(participantId: number, mode: RouteMode) {
@@ -985,6 +1111,8 @@ export default function Map() {
     setIsProposalApproved(false);
     setMeetingLink(null);
     setMeetingLinkStatusMessage(null);
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(null);
     try {
       const directionsService = new window.google.maps.DirectionsService();
       const routeEntries = await Promise.all(
@@ -1055,6 +1183,8 @@ export default function Map() {
     const nextApprovalState = !isProposalApproved;
     setIsProposalApproved(nextApprovalState);
     setMeetingLink(null);
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(null);
     setMeetingLinkStatusMessage(
       nextApprovalState
         ? `Voorstel "${selectedPlace.name}" is goedgekeurd. Je kunt nu de unieke meeting-link genereren.`
@@ -1073,6 +1203,8 @@ export default function Map() {
     setIsGeneratingMeetingLink(true);
     setMeetingLink(null);
     setMeetingLinkStatusMessage("Meeting-sessie opslaan en unieke URL genereren...");
+    setCalendarStatusMessage(null);
+    setCalendarErrorMessage(null);
 
     try {
       const accessToken = await getAccessToken();
@@ -1136,6 +1268,90 @@ export default function Map() {
     } catch (error) {
       console.error(error);
       setMeetingLinkStatusMessage("Kopiëren van de meeting-link is mislukt. Kopieer de URL handmatig.");
+    }
+  }
+
+  async function handleCreateGoogleCalendarEvent() {
+    if (!canCreateCalendarEvent || !loadedMeetingId) {
+      if (!user) {
+        setCalendarErrorMessage("Log eerst in via e-mail om Google Calendar te koppelen.");
+      }
+      return;
+    }
+
+    if (!meetingStartsAtInput) {
+      setCalendarErrorMessage("Kies eerst een startdatum en starttijd voor de afspraak.");
+      setCalendarStatusMessage(null);
+      return;
+    }
+
+    if (!Number.isInteger(meetingDurationMinutes) || meetingDurationMinutes < 15 || meetingDurationMinutes > 720) {
+      setCalendarErrorMessage("Kies een geldige duur tussen 15 en 720 minuten.");
+      setCalendarStatusMessage(null);
+      return;
+    }
+
+    const startsAtDate = new Date(meetingStartsAtInput);
+    if (!Number.isFinite(startsAtDate.getTime())) {
+      setCalendarErrorMessage("Ongeldige datum/tijd ontvangen. Controleer de invoer.");
+      setCalendarStatusMessage(null);
+      return;
+    }
+
+    setIsCreatingCalendarEvent(true);
+    setCalendarErrorMessage(null);
+    setCalendarStatusMessage("Google Calendar-event aanmaken...");
+
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error("Je bent niet ingelogd. Log opnieuw in om Google Calendar te gebruiken.");
+      }
+
+      const response = await fetch("/api/google-calendar/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          meetingId: loadedMeetingId,
+          startsAt: startsAtDate.toISOString(),
+          durationMinutes: meetingDurationMinutes,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | CreateGoogleCalendarEventSuccessResponse
+        | CreateGoogleCalendarEventRequiresOAuthResponse
+        | { message?: string }
+        | null;
+
+      if (response.status === 401 && isGoogleCalendarOAuthResponse(payload)) {
+        if (payload.authorizationUrl) {
+          window.location.assign(payload.authorizationUrl);
+          return;
+        }
+        throw new Error(payload.message ?? "Google OAuth toestemming is vereist.");
+      }
+
+      if (!response.ok || !isGoogleCalendarSuccessResponse(payload)) {
+        throw new Error(
+          extractApiErrorMessage(payload) ??
+            `Google Calendar event maken mislukt (status: ${response.status}).`,
+        );
+      }
+
+      setCalendarStatusMessage(`Google Calendar-event aangemaakt: ${payload.eventHtmlLink}`);
+      setCalendarErrorMessage(null);
+    } catch (error) {
+      console.error(error);
+      setCalendarStatusMessage(null);
+      setCalendarErrorMessage(
+        error instanceof Error ? error.message : "Google Calendar event maken is mislukt.",
+      );
+    } finally {
+      setIsCreatingCalendarEvent(false);
     }
   }
 
@@ -1480,6 +1696,52 @@ export default function Map() {
                 role={canGenerateMeetingLink ? "status" : "alert"}
               >
                 {meetingLinkStatusMessage}
+              </p>
+            )}
+
+            {isProposalApproved && loadedMeetingId && meetingLink && (
+              <>
+                <label htmlFor="meeting-starts-at">Start afspraak *</label>
+                <input
+                  id="meeting-starts-at"
+                  type="datetime-local"
+                  value={meetingStartsAtInput}
+                  onChange={(event) => setMeetingStartsAtInput(event.target.value)}
+                />
+
+                <label htmlFor="meeting-duration-minutes">Duur (minuten) *</label>
+                <input
+                  id="meeting-duration-minutes"
+                  type="number"
+                  min={15}
+                  max={720}
+                  step={15}
+                  value={meetingDurationMinutes}
+                  onChange={(event) => setMeetingDurationMinutes(Number(event.target.value))}
+                />
+
+                <button
+                  type="button"
+                  className="participants-panel__meeting-link-button"
+                  onClick={handleCreateGoogleCalendarEvent}
+                  disabled={!canCreateCalendarEvent}
+                >
+                  {isCreatingCalendarEvent ? "Google Calendar openen..." : "Naar Google Calendar"}
+                </button>
+                <p className="participants-panel__route-target">
+                  Bij eerste gebruik wordt OAuth consent gevraagd voor het maken van events.
+                </p>
+              </>
+            )}
+
+            {calendarStatusMessage && (
+              <p className="participants-panel__success-message" role="status">
+                {calendarStatusMessage}
+              </p>
+            )}
+            {calendarErrorMessage && (
+              <p className="participants-panel__validation-message" role="alert">
+                {calendarErrorMessage}
               </p>
             )}
           </section>
