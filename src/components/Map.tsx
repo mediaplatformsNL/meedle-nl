@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useRouter } from "next/router";
 import { GOOGLE_MAPS_API_KEY } from "../lib/config";
 import { calculateGeographicMidpoint } from "../lib/geo";
 import { findSuitablePlacesNearMidpoint, type SuitablePlace } from "../lib/places";
+import type {
+  CreateMeetingSessionResponse,
+  MeetingSessionData,
+  MeetingSessionParticipantRoutes,
+} from "../lib/meeting-session";
 
 const NETHERLANDS_CENTER = { lat: 52.1326, lng: 5.2913 };
 const NETHERLANDS_ZOOM = 7;
@@ -224,6 +230,21 @@ function summarizeRouteOption(routeOption: ParticipantRouteOption): string {
   }`;
 }
 
+function normalizeParticipantRoutes(
+  routesByParticipant: MeetingSessionParticipantRoutes,
+): Record<number, ParticipantRouteSet> {
+  const normalizedRoutes: Record<number, ParticipantRouteSet> = {};
+
+  for (const [participantId, routeSet] of Object.entries(routesByParticipant)) {
+    const numericParticipantId = Number(participantId);
+    if (Number.isInteger(numericParticipantId)) {
+      normalizedRoutes[numericParticipantId] = routeSet;
+    }
+  }
+
+  return normalizedRoutes;
+}
+
 async function fetchDirectionsRoute(
   directionsService: GoogleMapsDirectionsServiceInstance,
   origin: LatLngLiteral,
@@ -347,6 +368,7 @@ async function geocodeLocation(location: string): Promise<ParticipantCoordinates
 }
 
 export default function Map() {
+  const router = useRouter();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<GoogleMapsMapInstance | null>(null);
   const markerRefs = useRef<GoogleMapsMarkerInstance[]>([]);
@@ -376,7 +398,10 @@ export default function Map() {
   >({});
   const [isProposalApproved, setIsProposalApproved] = useState(false);
   const [meetingLink, setMeetingLink] = useState<string | null>(null);
+  const [loadedMeetingId, setLoadedMeetingId] = useState<string | null>(null);
   const [meetingLinkStatusMessage, setMeetingLinkStatusMessage] = useState<string | null>(null);
+  const [isGeneratingMeetingLink, setIsGeneratingMeetingLink] = useState(false);
+  const [isLoadingMeetingSession, setIsLoadingMeetingSession] = useState(false);
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -405,7 +430,7 @@ export default function Map() {
     !isCalculatingRoutes;
   const hasRouteResults = Object.keys(participantRoutes).length > 0;
   const canApproveProposal = hasRouteResults && selectedPlace !== null && !isCalculatingRoutes;
-  const canGenerateMeetingLink = canApproveProposal && isProposalApproved;
+  const canGenerateMeetingLink = canApproveProposal && isProposalApproved && !isGeneratingMeetingLink;
 
   useEffect(() => {
     let isUnmounted = false;
@@ -602,6 +627,96 @@ export default function Map() {
 
     routePolylineRefs.current = nextRoutePolylines;
   }, [participantRoutes]);
+
+  useEffect(() => {
+    if (!router.isReady) {
+      return;
+    }
+
+    const rawMeetingId = router.query.meeting;
+    const meetingIdFromQueryValue = Array.isArray(rawMeetingId) ? rawMeetingId[0] : rawMeetingId;
+    if (
+      typeof meetingIdFromQueryValue !== "string" ||
+      !meetingIdFromQueryValue ||
+      meetingIdFromQueryValue === loadedMeetingId
+    ) {
+      return;
+    }
+    const meetingIdFromQuery = meetingIdFromQueryValue;
+
+    let isCancelled = false;
+
+    async function loadMeetingSessionFromUrl() {
+      setIsLoadingMeetingSession(true);
+      setMeetingLinkStatusMessage("Meeting-sessie laden vanuit gedeelde URL...");
+
+      try {
+        const response = await fetch(`/api/meetings/${encodeURIComponent(meetingIdFromQuery)}`);
+        if (!response.ok) {
+          throw new Error(`Meeting-sessie ophalen mislukt (status: ${response.status}).`);
+        }
+
+        const session = (await response.json()) as MeetingSessionData;
+        if (isCancelled) {
+          return;
+        }
+
+        const restoredRoutes = normalizeParticipantRoutes(session.participantRoutes);
+        const maxParticipantId = session.participants.reduce(
+          (highestId, participant) => Math.max(highestId, participant.id),
+          0,
+        );
+        const activeModes: Record<number, RouteMode> = {};
+        for (const participantId of Object.keys(restoredRoutes)) {
+          activeModes[Number(participantId)] = "driving";
+        }
+
+        setParticipants(session.participants);
+        nextIdRef.current = maxParticipantId + 1;
+        setTouchedFields({});
+        setHasTriedToContinue(false);
+        setParticipantGeocodeErrors({});
+        setGeographicCenter(session.geographicCenter);
+        setSuitablePlaces([session.selectedPlace]);
+        setSelectedPlaceId(session.selectedPlace.id);
+        setParticipantRoutes(restoredRoutes);
+        setActiveRouteModeByParticipant(activeModes);
+        setRouteStatusMessage("Routegegevens geladen vanuit meeting-sessie.");
+        setIsRouteStatusError(false);
+        setIsProposalApproved(true);
+        setContinueStatusMessage(
+          `Meeting-sessie geladen met ${session.participants.length} deelnemer(s).`,
+        );
+
+        const meetingUrl = new URL(window.location.pathname, window.location.origin);
+        meetingUrl.searchParams.set("meeting", session.meetingId);
+        setMeetingLink(meetingUrl.toString());
+        setMeetingLinkStatusMessage(
+          `Sessie geladen. Meeting is goedgekeurd op ${new Date(session.approvedAt).toLocaleString("nl-NL")}.`,
+        );
+        setLoadedMeetingId(session.meetingId);
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        console.error(error);
+        setMeetingLinkStatusMessage(
+          "Meeting-sessie kon niet worden geladen. Controleer of de link geldig en niet verlopen is.",
+        );
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingMeetingSession(false);
+        }
+      }
+    }
+
+    void loadMeetingSessionFromUrl();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [loadedMeetingId, router.isReady, router.query.meeting]);
 
   function handleAddParticipant() {
     if (hasReachedParticipantLimit) {
@@ -938,24 +1053,52 @@ export default function Map() {
     );
   }
 
-  function handleGenerateMeetingLink() {
+  async function handleGenerateMeetingLink() {
     if (!canGenerateMeetingLink || !selectedPlace) {
       return;
     }
 
-    const meetingId =
-      typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const meetingUrl = new URL(
-      typeof window === "undefined" ? "/" : window.location.pathname,
-      typeof window === "undefined" ? "https://meedle.local" : window.location.origin,
-    );
-    meetingUrl.searchParams.set("meeting", meetingId);
-    meetingUrl.searchParams.set("locatie", selectedPlace.id);
+    setIsGeneratingMeetingLink(true);
+    setMeetingLink(null);
+    setMeetingLinkStatusMessage("Meeting-sessie opslaan en unieke URL genereren...");
 
-    setMeetingLink(meetingUrl.toString());
-    setMeetingLinkStatusMessage("Unieke, deelbare meeting-link is gegenereerd.");
+    try {
+      const response = await fetch("/api/meetings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          participants,
+          geographicCenter,
+          selectedPlace,
+          participantRoutes: participantRoutes as MeetingSessionParticipantRoutes,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Meeting-sessie opslaan mislukt (status: ${response.status}).`);
+      }
+
+      const payload = (await response.json()) as CreateMeetingSessionResponse;
+      const meetingUrl = new URL(window.location.pathname, window.location.origin);
+      meetingUrl.searchParams.set("meeting", payload.meetingId);
+
+      setMeetingLink(meetingUrl.toString());
+      setLoadedMeetingId(payload.meetingId);
+      setMeetingLinkStatusMessage(
+        `Unieke meeting-link is gegenereerd. Sessiedata is tijdelijk opgeslagen tot ${new Date(
+          payload.expiresAt,
+        ).toLocaleString("nl-NL")}.`,
+      );
+    } catch (error) {
+      console.error(error);
+      setMeetingLinkStatusMessage(
+        "Meeting-link genereren is mislukt. Probeer opnieuw nadat het voorstel is goedgekeurd.",
+      );
+    } finally {
+      setIsGeneratingMeetingLink(false);
+    }
   }
 
   async function handleCopyMeetingLink() {
@@ -1076,7 +1219,7 @@ export default function Map() {
         <button
           type="submit"
           className="participants-panel__continue"
-          disabled={isGeocoding || isSearchingSuitablePlaces || isCalculatingRoutes}
+          disabled={isGeocoding || isSearchingSuitablePlaces || isCalculatingRoutes || isLoadingMeetingSession}
         >
           {isGeocoding
             ? "Bezig met geocoderen..."
@@ -1084,6 +1227,8 @@ export default function Map() {
               ? "Zoeken naar geschikte locaties..."
               : isCalculatingRoutes
                 ? "Routes berekenen..."
+              : isLoadingMeetingSession
+                ? "Meeting-sessie laden..."
               : "Doorgaan"}
         </button>
 
@@ -1278,7 +1423,9 @@ export default function Map() {
               onClick={handleGenerateMeetingLink}
               disabled={!canGenerateMeetingLink}
             >
-              Genereer unieke, deelbare meeting-link
+              {isGeneratingMeetingLink
+                ? "Meeting-link genereren..."
+                : "Genereer unieke, deelbare meeting-link"}
             </button>
             {meetingLink && (
               <p className="participants-panel__meeting-link-url" role="status">

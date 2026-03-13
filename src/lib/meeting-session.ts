@@ -1,0 +1,48 @@
+import type { SuitablePlace } from "./places";
+
+export type MeetingRouteFetchStatus = "ok" | "unavailable" | "error";
+
+export interface MeetingLatLngLiteral {
+  lat: number;
+  lng: number;
+}
+
+export interface MeetingSessionParticipant {
+  id: number;
+  name: string;
+  location: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface MeetingSessionRouteOption {
+  status: MeetingRouteFetchStatus;
+  distanceText: string | null;
+  durationText: string | null;
+  path: MeetingLatLngLiteral[];
+  message: string;
+}
+
+export interface MeetingSessionParticipantRouteSet {
+  driving: MeetingSessionRouteOption;
+  transit: MeetingSessionRouteOption;
+}
+
+export type MeetingSessionParticipantRoutes = Record<number, MeetingSessionParticipantRouteSet>;
+
+export interface MeetingSessionCreateInput {
+  participants: MeetingSessionParticipant[];
+  geographicCenter: MeetingLatLngLiteral | null;
+  selectedPlace: SuitablePlace;
+  participantRoutes: MeetingSessionParticipantRoutes;
+}
+
+export interface MeetingSessionData extends MeetingSessionCreateInput {
+  meetingId: string;
+  approvedAt: string;
+}
+
+export interface CreateMeetingSessionResponse {
+  meetingId: string;
+  expiresAt: string;
+}
