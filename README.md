@@ -13,9 +13,19 @@ src/
 
 ## Configuratie
 
-De Google Maps API key is ingesteld via Next.js runtime env:
+De Google Maps en Supabase instellingen zijn geconfigureerd via Next.js runtime env:
 
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSyB5NCPpj4QeNbyie8ZIPa5aA6cS4mcYLEk`
+- `SUPABASE_URL={{SUPABASE_URL}}`
+- `SUPABASE_ANON_KEY={{SUPABASE_ANON_KEY}}`
+
+> `SUPABASE_URL` en `SUPABASE_ANON_KEY` worden automatisch doorgezet naar de publieke varianten die de browser gebruikt.
+
+## Auth + meetings
+
+- Eenvoudige login via e-mail (Supabase magic link) beschikbaar in de app.
+- Alleen ingelogde gebruikers kunnen meetings opslaan.
+- Pagina `/meetings` toont per gebruiker opgeslagen meetings (datum, deelnemers, locaties) en bevat een knop om een meeting te herhalen.
 
 ## Scripts
 

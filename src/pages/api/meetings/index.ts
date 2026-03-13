@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { getAuthenticatedUserId } from "../../../lib/api-auth";
 import {
   createMeetingSession,
 } from "../../../lib/meeting-session-store";
@@ -150,7 +151,7 @@ function toCreateInput(body: unknown): MeetingSessionCreateInput | null {
   };
 }
 
-export default function handler(
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CreateMeetingSessionResponse | { message: string }>,
 ) {
@@ -166,7 +167,15 @@ export default function handler(
     return;
   }
 
-  const { session, expiresAt } = createMeetingSession(createInput);
+  const authenticatedUserId = await getAuthenticatedUserId(req);
+  if (!authenticatedUserId) {
+    res.status(401).json({
+      message: "Je moet ingelogd zijn om meetings op te slaan.",
+    });
+    return;
+  }
+
+  const { session, expiresAt } = createMeetingSession(createInput, authenticatedUserId);
   res.status(201).json({
     meetingId: session.meetingId,
     expiresAt,
