@@ -1,5 +1,6 @@
 import Head from "next/head";
 import Map from "../components/Map";
+import AuthPanel from "../components/AuthPanel";
 
 export default function HomePage() {
   return (
@@ -13,6 +14,9 @@ export default function HomePage() {
       </Head>
       <main className="fullscreen-page">
         <Map />
+        <div className="auth-panel-floating">
+          <AuthPanel />
+        </div>
       </main>
     </>
   );

@@ -67,3 +67,11 @@ export interface AddMeetingVoteInput {
   placeId: string;
   comment: string | null;
 }
+
+export interface SavedMeetingSummary {
+  meetingId: string;
+  approvedAt: string;
+  participants: MeetingSessionParticipant[];
+  selectedPlace: SuitablePlace;
+  suggestedPlaces: SuitablePlace[];
+}

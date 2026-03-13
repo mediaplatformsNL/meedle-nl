@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/router";
 import { GOOGLE_MAPS_API_KEY } from "../lib/config";
+import { useAuth } from "../lib/auth-context";
 import { calculateGeographicMidpoint } from "../lib/geo";
 import { findSuitablePlacesNearMidpoint, type SuitablePlace } from "../lib/places";
 import type {
@@ -369,6 +370,7 @@ async function geocodeLocation(location: string): Promise<ParticipantCoordinates
 
 export default function Map() {
   const router = useRouter();
+  const { user, getAccessToken } = useAuth();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<GoogleMapsMapInstance | null>(null);
   const markerRefs = useRef<GoogleMapsMarkerInstance[]>([]);
@@ -430,7 +432,8 @@ export default function Map() {
     !isCalculatingRoutes;
   const hasRouteResults = Object.keys(participantRoutes).length > 0;
   const canApproveProposal = hasRouteResults && selectedPlace !== null && !isCalculatingRoutes;
-  const canGenerateMeetingLink = canApproveProposal && isProposalApproved && !isGeneratingMeetingLink;
+  const canGenerateMeetingLink =
+    canApproveProposal && isProposalApproved && !isGeneratingMeetingLink && !!user;
 
   useEffect(() => {
     let isUnmounted = false;
@@ -1061,6 +1064,9 @@ export default function Map() {
 
   async function handleGenerateMeetingLink() {
     if (!canGenerateMeetingLink || !selectedPlace) {
+      if (!user) {
+        setMeetingLinkStatusMessage("Log eerst in via e-mail om meetings op te slaan.");
+      }
       return;
     }
 
@@ -1069,10 +1075,16 @@ export default function Map() {
     setMeetingLinkStatusMessage("Meeting-sessie opslaan en unieke URL genereren...");
 
     try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) {
+        throw new Error("Je bent niet ingelogd. Log opnieuw in om de meeting op te slaan.");
+      }
+
       const response = await fetch("/api/meetings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           participants,
@@ -1084,7 +1096,10 @@ export default function Map() {
       });
 
       if (!response.ok) {
-        throw new Error(`Meeting-sessie opslaan mislukt (status: ${response.status}).`);
+        const errorPayload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(
+          errorPayload?.message ?? `Meeting-sessie opslaan mislukt (status: ${response.status}).`,
+        );
       }
 
       const payload = (await response.json()) as CreateMeetingSessionResponse;
@@ -1436,6 +1451,11 @@ export default function Map() {
                 ? "Meeting-link genereren..."
                 : "Genereer unieke, deelbare meeting-link"}
             </button>
+            {!user && (
+              <p className="participants-panel__validation-message">
+                Log in via e-mail (linksboven) om de meeting op te slaan en later te herhalen.
+              </p>
+            )}
             {meetingLink && (
               <p className="participants-panel__meeting-link-url" role="status">
                 <a href={meetingLink}>{meetingLink}</a>

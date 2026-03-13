@@ -32,6 +32,173 @@ main {
   max-width: none;
   margin: 0;
   padding: 0;
+  position: relative;
+}
+
+.auth-panel-floating {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 3;
+  width: min(24rem, calc(100% - 2rem));
+}
+
+.auth-panel-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.auth-panel-card h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.auth-panel-card__form {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.auth-panel-card__form label {
+  font-size: 0.82rem;
+  color: #1e293b;
+}
+
+.auth-panel-card__form input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+}
+
+.auth-panel-card button {
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  background: #1d4ed8;
+  color: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-panel-card button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-panel-card__status,
+.auth-panel-card__error,
+.auth-panel-card__links {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.auth-panel-card__status {
+  color: #166534;
+}
+
+.auth-panel-card__error {
+  color: #b91c1c;
+}
+
+.auth-panel-card__links a {
+  color: #1d4ed8;
+}
+
+.saved-meetings-page {
+  max-width: min(60rem, 100%);
+  margin: 0 auto;
+  padding: 1rem;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.saved-meetings-page__auth {
+  position: sticky;
+  top: 1rem;
+}
+
+.saved-meetings-page__content {
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  padding: 1rem;
+  background: #fff;
+  display: grid;
+  gap: 0.8rem;
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+}
+
+.saved-meetings-page__content h1 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #0f172a;
+}
+
+.saved-meetings-page__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.saved-meetings-page__item {
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  padding: 0.7rem;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.saved-meetings-page__item p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #1e293b;
+}
+
+.saved-meetings-page__item button {
+  justify-self: end;
+  border: none;
+  border-radius: 8px;
+  padding: 0.48rem 0.65rem;
+  background: #0f766e;
+  color: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.saved-meetings-page__item button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.saved-meetings-page__status,
+.saved-meetings-page__error {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.saved-meetings-page__status {
+  color: #166534;
+}
+
+.saved-meetings-page__error {
+  color: #b91c1c;
 }
 
 .map-fullscreen {
@@ -633,6 +800,26 @@ main {
 }
 
 @media (max-width: 760px) {
+  .auth-panel-floating {
+    top: 0.5rem;
+    left: 0.5rem;
+    width: min(22rem, calc(100% - 1rem));
+  }
+
+  .saved-meetings-page {
+    grid-template-columns: 1fr;
+    padding: 0.5rem;
+    gap: 0.6rem;
+  }
+
+  .saved-meetings-page__auth {
+    position: static;
+  }
+
+  .saved-meetings-page__content {
+    max-height: calc(100vh - 1rem);
+  }
+
   .participants-panel {
     top: 0.5rem;
     right: 0.5rem;
