@@ -39,6 +39,124 @@ main {
   height: 100%;
 }
 
+.map-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.participants-panel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+  width: min(26rem, calc(100% - 2rem));
+  max-height: calc(100% - 5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #dadde5;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.participants-panel__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.participants-panel__header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.participants-panel__header p {
+  margin: 0;
+  color: #334155;
+  font-size: 0.875rem;
+}
+
+.participants-panel__list {
+  display: grid;
+  gap: 0.75rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.participant-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+  background: #fff;
+}
+
+.participant-row__title {
+  margin: 0 0 0.2rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.participant-row label {
+  font-size: 0.875rem;
+  color: #1e293b;
+}
+
+.participant-row input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+}
+
+.participant-row button,
+.participants-panel__add {
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.participant-row button {
+  justify-self: end;
+  background: #e2e8f0;
+  color: #1f2937;
+}
+
+.participants-panel__add {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.participants-panel__add:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.participants-panel__limit-message {
+  margin: 0;
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 760px) {
+  .participants-panel {
+    top: 0.5rem;
+    right: 0.5rem;
+    width: min(23rem, calc(100% - 1rem));
+    max-height: calc(100% - 4rem);
+  }
+}
+
 .card {
   background: #fff;
   border: 1px solid #ddd;
