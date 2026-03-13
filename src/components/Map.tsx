@@ -6,9 +6,38 @@ import { findSuitablePlacesNearMidpoint, type SuitablePlace } from "../lib/place
 const NETHERLANDS_CENTER = { lat: 52.1326, lng: 5.2913 };
 const NETHERLANDS_ZOOM = 7;
 const MAX_PARTICIPANTS = 25;
+const SINGLE_MARKER_ZOOM = 11;
+const MAP_BOUNDS_PADDING_PX = 96;
+const PARTICIPANT_MARKER_ICON_URL = "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
+const MIDPOINT_MARKER_ICON_URL = "https://maps.google.com/mapfiles/ms/icons/purple-dot.png";
+const PLACE_MARKER_ICON_URL = "https://maps.google.com/mapfiles/ms/icons/green-dot.png";
 
 type ParticipantField = "name" | "location";
 type ParticipantCoordinates = { latitude: number; longitude: number };
+type LatLngLiteral = { lat: number; lng: number };
+
+interface GoogleMapsMapInstance {
+  setCenter(latLng: LatLngLiteral): void;
+  setZoom(zoom: number): void;
+  fitBounds(bounds: GoogleMapsLatLngBoundsInstance, padding?: number): void;
+}
+
+interface GoogleMapsLatLngBoundsInstance {
+  extend(latLng: LatLngLiteral): void;
+}
+
+type MarkerLabel =
+  | string
+  | {
+      text: string;
+      color?: string;
+      fontSize?: string;
+      fontWeight?: string;
+    };
+
+interface GoogleMapsMarkerInstance {
+  setMap(map: GoogleMapsMapInstance | null): void;
+}
 
 interface Participant {
   id: number;
@@ -53,10 +82,26 @@ declare global {
   interface Window {
     google?: {
       maps?: {
-        Map: new (element: HTMLElement, options: Record<string, unknown>) => unknown;
+        Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMapsMapInstance;
+        Marker: new (options: {
+          map: GoogleMapsMapInstance;
+          position: LatLngLiteral;
+          title?: string;
+          label?: MarkerLabel;
+          icon?: string;
+        }) => GoogleMapsMarkerInstance;
+        LatLngBounds: new () => GoogleMapsLatLngBoundsInstance;
       };
     };
   }
+}
+
+function truncateMarkerLabel(label: string, maxLength = 28): string {
+  if (label.length <= maxLength) {
+    return label;
+  }
+
+  return `${label.slice(0, maxLength - 1)}…`;
 }
 
 function loadGoogleMapsScript(apiKey: string): Promise<void> {
@@ -131,6 +176,8 @@ async function geocodeLocation(location: string): Promise<ParticipantCoordinates
 
 export default function Map() {
   const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<GoogleMapsMapInstance | null>(null);
+  const markerRefs = useRef<GoogleMapsMarkerInstance[]>([]);
   const nextIdRef = useRef(2);
   const [participants, setParticipants] = useState<Participant[]>([
     { id: 1, name: "", location: "", latitude: null, longitude: null },
@@ -160,6 +207,9 @@ export default function Map() {
     (participant) => Object.keys(participantErrors[participant.id] ?? {}).length > 0,
   );
   const canContinue = participants.length > 0 && !hasFieldErrors;
+  const geocodedParticipantCount = participants.filter(
+    (participant) => participant.latitude !== null && participant.longitude !== null,
+  ).length;
 
   useEffect(() => {
     let isUnmounted = false;
@@ -172,7 +222,7 @@ export default function Map() {
           return;
         }
 
-        new window.google.maps.Map(mapRef.current, {
+        mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
           center: NETHERLANDS_CENTER,
           zoom: NETHERLANDS_ZOOM,
           fullscreenControl: false,
@@ -187,8 +237,111 @@ export default function Map() {
 
     return () => {
       isUnmounted = true;
+      markerRefs.current.forEach((marker) => marker.setMap(null));
+      markerRefs.current = [];
+      mapInstanceRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.google?.maps) {
+      return;
+    }
+
+    const map = mapInstanceRef.current;
+    const nextMarkers: GoogleMapsMarkerInstance[] = [];
+    const bounds = new window.google.maps.LatLngBounds();
+    let firstMarkerPosition: LatLngLiteral | null = null;
+    let markerCount = 0;
+
+    markerRefs.current.forEach((marker) => marker.setMap(null));
+    markerRefs.current = [];
+
+    const registerPosition = (position: LatLngLiteral) => {
+      bounds.extend(position);
+      if (!firstMarkerPosition) {
+        firstMarkerPosition = position;
+      }
+      markerCount += 1;
+    };
+
+    participants.forEach((participant, index) => {
+      if (participant.latitude === null || participant.longitude === null) {
+        return;
+      }
+
+      const displayName = participant.name.trim() || `Deelnemer ${index + 1}`;
+      const position = { lat: participant.latitude, lng: participant.longitude };
+      const marker = new window.google.maps.Marker({
+        map,
+        position,
+        title: `Deelnemer: ${displayName}`,
+        label: {
+          text: truncateMarkerLabel(displayName),
+          color: "#0f172a",
+          fontSize: "12px",
+          fontWeight: "700",
+        },
+        icon: PARTICIPANT_MARKER_ICON_URL,
+      });
+
+      nextMarkers.push(marker);
+      registerPosition(position);
+    });
+
+    if (geographicCenter) {
+      const midpointMarker = new window.google.maps.Marker({
+        map,
+        position: geographicCenter,
+        title: `Geografisch middelpunt (${geographicCenter.lat.toFixed(6)}, ${geographicCenter.lng.toFixed(6)})`,
+        label: {
+          text: "Middelpunt",
+          color: "#6b21a8",
+          fontSize: "12px",
+          fontWeight: "700",
+        },
+        icon: MIDPOINT_MARKER_ICON_URL,
+      });
+      nextMarkers.push(midpointMarker);
+      registerPosition(geographicCenter);
+    }
+
+    suitablePlaces.forEach((place) => {
+      const placeType = formatPlaceCategory(place.type);
+      const labelText = `${place.name} (${placeType})`;
+      const marker = new window.google.maps.Marker({
+        map,
+        position: place.location,
+        title: labelText,
+        label: {
+          text: truncateMarkerLabel(labelText),
+          color: "#14532d",
+          fontSize: "11px",
+          fontWeight: "700",
+        },
+        icon: PLACE_MARKER_ICON_URL,
+      });
+
+      nextMarkers.push(marker);
+      registerPosition(place.location);
+    });
+
+    markerRefs.current = nextMarkers;
+
+    if (markerCount === 0) {
+      map.setCenter(NETHERLANDS_CENTER);
+      map.setZoom(NETHERLANDS_ZOOM);
+      return;
+    }
+
+    if (markerCount === 1 && firstMarkerPosition) {
+      map.setCenter(firstMarkerPosition);
+      map.setZoom(SINGLE_MARKER_ZOOM);
+      return;
+    }
+
+    map.fitBounds(bounds, MAP_BOUNDS_PADDING_PX);
+  }, [participants, geographicCenter, suitablePlaces]);
 
   function handleAddParticipant() {
     if (hasReachedParticipantLimit) {
@@ -533,6 +686,23 @@ export default function Map() {
           </p>
         )}
       </form>
+      <aside className="map-legend" aria-label="Kaartgids">
+        <h3>Kaartgids</h3>
+        <ul>
+          <li>
+            <span className="map-legend__swatch map-legend__swatch--participant" aria-hidden="true" />
+            Deelnemers ({geocodedParticipantCount}) met naamlabel
+          </li>
+          <li>
+            <span className="map-legend__swatch map-legend__swatch--midpoint" aria-hidden="true" />
+            Berekend middelpunt (duidelijk gemarkeerd)
+          </li>
+          <li>
+            <span className="map-legend__swatch map-legend__swatch--place" aria-hidden="true" />
+            Locatiesuggesties ({suitablePlaces.length}) met naam en type
+          </li>
+        </ul>
+      </aside>
     </div>
   );
 }
