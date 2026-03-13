@@ -11,36 +11,29 @@ import type {
   SavedMeetingSummary,
 } from "./meeting-session";
 import type { SuitablePlace } from "./places";
+import { createServerSupabaseClient } from "./supabase";
 
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000;
 
-interface StoredMeetingSession {
-  data: MeetingSessionData;
-  expiresAtMs: number;
-  ownerUserId: string;
-}
-
-interface SavedMeetingRecord {
-  meetingId: string;
+interface MeetingRow {
+  id: string;
   ownerUserId: string;
   approvedAt: string;
-  participants: MeetingSessionParticipant[];
-  geographicCenter: MeetingLatLngLiteral | null;
-  selectedPlace: SuitablePlace;
-  suggestedPlaces: SuitablePlace[];
-  participantRoutes: Record<number, MeetingSessionParticipantRouteSet>;
+  expiresAt: string | null;
+  participantsJson: MeetingSessionParticipant[];
+  geographicCenterJson: MeetingLatLngLiteral | null;
+  selectedPlaceJson: SuitablePlace;
+  suggestedPlacesJson: SuitablePlace[];
+  participantRoutesJson: Record<number, MeetingSessionParticipantRouteSet>;
 }
 
-const meetingSessions = new Map<string, StoredMeetingSession>();
-const savedMeetingsByMeetingId = new Map<string, SavedMeetingRecord>();
-const savedMeetingIdsByOwner = new Map<string, string[]>();
-
-function cleanupExpiredSessions(nowMs: number): void {
-  for (const [meetingId, session] of meetingSessions.entries()) {
-    if (session.expiresAtMs <= nowMs) {
-      meetingSessions.delete(meetingId);
-    }
-  }
+interface VoteRow {
+  id: string;
+  participant_name: string;
+  place_id: string;
+  place_name: string;
+  created_at: string;
+  comments: Array<{ content: string }> | null;
 }
 
 function cloneLatLng(value: MeetingLatLngLiteral): MeetingLatLngLiteral {
@@ -83,32 +76,114 @@ function cloneParticipantRoutes(
   return clonedRoutes;
 }
 
-function saveMeetingForUser(record: SavedMeetingRecord): void {
-  savedMeetingsByMeetingId.set(record.meetingId, record);
-
-  const existingMeetingIds = savedMeetingIdsByOwner.get(record.ownerUserId) ?? [];
-  const filteredMeetingIds = existingMeetingIds.filter((meetingId) => meetingId !== record.meetingId);
-  savedMeetingIdsByOwner.set(record.ownerUserId, [record.meetingId, ...filteredMeetingIds]);
+function normalizeSuggestedPlaces(
+  selectedPlace: SuitablePlace,
+  suggestedPlaces: SuitablePlace[] | undefined,
+): SuitablePlace[] {
+  const uniqueSuggestedPlaces = new Map<string, SuitablePlace>();
+  for (const place of suggestedPlaces ?? []) {
+    uniqueSuggestedPlaces.set(place.id, clonePlace(place));
+  }
+  uniqueSuggestedPlaces.set(selectedPlace.id, clonePlace(selectedPlace));
+  return Array.from(uniqueSuggestedPlaces.values());
 }
 
-export function createMeetingSession(
+function getSuggestedPlacesFromRow(row: MeetingRow): SuitablePlace[] {
+  return normalizeSuggestedPlaces(row.selectedPlaceJson, row.suggestedPlacesJson);
+}
+
+function toMeetingSessionData(row: MeetingRow, votes: MeetingLocationVote[]): MeetingSessionData {
+  return {
+    meetingId: row.id,
+    approvedAt: row.approvedAt,
+    participants: cloneParticipants(row.participantsJson),
+    geographicCenter: row.geographicCenterJson ? cloneLatLng(row.geographicCenterJson) : null,
+    selectedPlace: clonePlace(row.selectedPlaceJson),
+    suggestedPlaces: getSuggestedPlacesFromRow(row),
+    participantRoutes: cloneParticipantRoutes(row.participantRoutesJson),
+    votes,
+  };
+}
+
+async function getMeetingRowById(meetingId: string): Promise<MeetingRow | null> {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("meetings")
+    .select(
+      "id, owner_user_id, approved_at, expires_at, participants_json, geographic_center_json, selected_place_json, suggested_places_json, participant_routes_json",
+    )
+    .eq("id", meetingId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Kon meeting niet ophalen: ${error.message}`);
+  }
+  if (!data) {
+    return null;
+  }
+
+  return {
+    id: data.id as string,
+    ownerUserId: data.owner_user_id as string,
+    approvedAt: data.approved_at as string,
+    expiresAt: (data.expires_at as string | null) ?? null,
+    participantsJson: (data.participants_json as MeetingSessionParticipant[]) ?? [],
+    geographicCenterJson: (data.geographic_center_json as MeetingLatLngLiteral | null) ?? null,
+    selectedPlaceJson: data.selected_place_json as SuitablePlace,
+    suggestedPlacesJson: (data.suggested_places_json as SuitablePlace[]) ?? [],
+    participantRoutesJson:
+      (data.participant_routes_json as Record<number, MeetingSessionParticipantRouteSet>) ?? {},
+  };
+}
+
+async function getVotesByMeetingId(meetingId: string): Promise<MeetingLocationVote[]> {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("votes")
+    .select("id, participant_name, place_id, place_name, created_at, comments(content)")
+    .eq("meeting_id", meetingId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Kon stemmen niet ophalen: ${error.message}`);
+  }
+
+  const voteRows = (data ?? []) as VoteRow[];
+  return voteRows.map((voteRow) => {
+    const comment = voteRow.comments?.[0]?.content;
+    return {
+      id: voteRow.id,
+      participantName: voteRow.participant_name,
+      placeId: voteRow.place_id,
+      placeName: voteRow.place_name,
+      comment: typeof comment === "string" && comment.trim().length > 0 ? comment : null,
+      createdAt: voteRow.created_at,
+    };
+  });
+}
+
+function isMeetingExpired(expiresAt: string | null, nowMs: number): boolean {
+  if (!expiresAt) {
+    return false;
+  }
+
+  const expiresAtMs = new Date(expiresAt).getTime();
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
+}
+
+export async function createMeetingSession(
   input: MeetingSessionCreateInput,
   ownerUserId: string,
-): {
+): Promise<{
   session: MeetingSessionData;
   expiresAt: string;
-} {
+}> {
   const nowMs = Date.now();
-  cleanupExpiredSessions(nowMs);
-
   const meetingId = nanoid(24);
   const expiresAtMs = nowMs + SESSION_TTL_MS;
-
-  const uniqueSuggestedPlaces = new Map<string, MeetingSessionData["selectedPlace"]>();
-  for (const place of input.suggestedPlaces ?? []) {
-    uniqueSuggestedPlaces.set(place.id, place);
-  }
-  uniqueSuggestedPlaces.set(input.selectedPlace.id, input.selectedPlace);
+  const approvedAt = new Date(nowMs).toISOString();
+  const expiresAt = new Date(expiresAtMs).toISOString();
+  const suggestedPlaces = normalizeSuggestedPlaces(input.selectedPlace, input.suggestedPlaces);
 
   const session: MeetingSessionData = {
     participants: cloneParticipants(input.participants),
@@ -116,107 +191,178 @@ export function createMeetingSession(
     selectedPlace: clonePlace(input.selectedPlace),
     participantRoutes: cloneParticipantRoutes(input.participantRoutes),
     meetingId,
-    approvedAt: new Date(nowMs).toISOString(),
-    suggestedPlaces: Array.from(uniqueSuggestedPlaces.values()).map((place) => clonePlace(place)),
+    approvedAt,
+    suggestedPlaces,
     votes: [],
   };
 
-  meetingSessions.set(meetingId, { data: session, expiresAtMs, ownerUserId });
-
-  saveMeetingForUser({
-    meetingId,
-    ownerUserId,
-    approvedAt: session.approvedAt,
-    participants: cloneParticipants(session.participants),
-    geographicCenter: session.geographicCenter ? cloneLatLng(session.geographicCenter) : null,
-    selectedPlace: clonePlace(session.selectedPlace),
-    suggestedPlaces: session.suggestedPlaces.map((place) => clonePlace(place)),
-    participantRoutes: cloneParticipantRoutes(session.participantRoutes),
+  const supabase = createServerSupabaseClient();
+  const { error: createMeetingError } = await supabase.from("meetings").insert({
+    id: meetingId,
+    owner_user_id: ownerUserId,
+    approved_at: approvedAt,
+    expires_at: expiresAt,
+    participants_json: session.participants,
+    geographic_center_json: session.geographicCenter,
+    selected_place_json: session.selectedPlace,
+    suggested_places_json: session.suggestedPlaces,
+    participant_routes_json: session.participantRoutes,
   });
+  if (createMeetingError) {
+    throw new Error(`Meeting opslaan mislukt: ${createMeetingError.message}`);
+  }
+
+  const participantRows = session.participants.map((participant) => ({
+    meeting_id: meetingId,
+    participant_id: participant.id,
+    participant_name: participant.name,
+    participant_location: participant.location,
+    latitude: participant.latitude,
+    longitude: participant.longitude,
+  }));
+
+  if (participantRows.length > 0) {
+    const { error: insertParticipantsError } = await supabase
+      .from("meeting_participants")
+      .insert(participantRows);
+
+    if (insertParticipantsError) {
+      await supabase.from("meetings").delete().eq("id", meetingId);
+      throw new Error(`Meeting deelnemers opslaan mislukt: ${insertParticipantsError.message}`);
+    }
+  }
 
   return {
     session,
-    expiresAt: new Date(expiresAtMs).toISOString(),
+    expiresAt,
   };
 }
 
-export function getMeetingSession(meetingId: string): MeetingSessionData | null {
+export async function getMeetingSession(meetingId: string): Promise<MeetingSessionData | null> {
   const nowMs = Date.now();
-  cleanupExpiredSessions(nowMs);
-
-  const session = meetingSessions.get(meetingId);
-  if (!session || session.expiresAtMs <= nowMs) {
-    meetingSessions.delete(meetingId);
+  const meetingRow = await getMeetingRowById(meetingId);
+  if (!meetingRow || isMeetingExpired(meetingRow.expiresAt, nowMs)) {
     return null;
   }
 
-  return session.data;
+  const votes = await getVotesByMeetingId(meetingId);
+  return toMeetingSessionData(meetingRow, votes);
 }
 
-export function addMeetingVote(
+export async function addMeetingVote(
   meetingId: string,
   input: AddMeetingVoteInput,
-): { session: MeetingSessionData; vote: MeetingLocationVote } | null {
+  voterUserId?: string | null,
+): Promise<{ session: MeetingSessionData; vote: MeetingLocationVote } | null> {
   const nowMs = Date.now();
-  cleanupExpiredSessions(nowMs);
-
-  const storedSession = meetingSessions.get(meetingId);
-  if (!storedSession || storedSession.expiresAtMs <= nowMs) {
-    meetingSessions.delete(meetingId);
+  const meetingRow = await getMeetingRowById(meetingId);
+  if (!meetingRow || isMeetingExpired(meetingRow.expiresAt, nowMs)) {
     return null;
   }
 
-  const session = storedSession.data;
-  const votedPlace = session.suggestedPlaces.find((place) => place.id === input.placeId);
+  const votedPlace = getSuggestedPlacesFromRow(meetingRow).find((place) => place.id === input.placeId);
   if (!votedPlace) {
     return null;
   }
 
+  const voteId = nanoid(14);
+  const trimmedParticipantName = input.participantName.trim();
+  const trimmedComment = input.comment ? input.comment.trim().slice(0, MAX_VOTE_COMMENT_LENGTH) : null;
+  const createdAt = new Date(nowMs).toISOString();
+
+  const supabase = createServerSupabaseClient();
+  const { error: createVoteError } = await supabase.from("votes").insert({
+    id: voteId,
+    meeting_id: meetingId,
+    user_id: voterUserId ?? null,
+    participant_name: trimmedParticipantName,
+    place_id: votedPlace.id,
+    place_name: votedPlace.name,
+    created_at: createdAt,
+  });
+  if (createVoteError) {
+    throw new Error(`Stem opslaan mislukt: ${createVoteError.message}`);
+  }
+
+  if (trimmedComment) {
+    const { error: createCommentError } = await supabase.from("comments").insert({
+      id: nanoid(14),
+      vote_id: voteId,
+      meeting_id: meetingId,
+      user_id: voterUserId ?? null,
+      content: trimmedComment,
+      created_at: createdAt,
+    });
+    if (createCommentError) {
+      await supabase.from("votes").delete().eq("id", voteId);
+      throw new Error(`Reactie opslaan mislukt: ${createCommentError.message}`);
+    }
+  }
+
   const vote: MeetingLocationVote = {
-    id: nanoid(14),
-    participantName: input.participantName.trim(),
+    id: voteId,
+    participantName: trimmedParticipantName,
     placeId: votedPlace.id,
     placeName: votedPlace.name,
-    comment: input.comment ? input.comment.trim().slice(0, MAX_VOTE_COMMENT_LENGTH) : null,
-    createdAt: new Date(nowMs).toISOString(),
+    comment: trimmedComment,
+    createdAt,
   };
 
-  session.votes = [...session.votes, vote];
-  return { session, vote };
-}
-
-export function getSavedMeetingsForUser(ownerUserId: string): SavedMeetingSummary[] {
-  const meetingIds = savedMeetingIdsByOwner.get(ownerUserId) ?? [];
-  return meetingIds
-    .map((meetingId) => savedMeetingsByMeetingId.get(meetingId))
-    .filter((meetingRecord): meetingRecord is SavedMeetingRecord => !!meetingRecord)
-    .map((meetingRecord) => ({
-      meetingId: meetingRecord.meetingId,
-      approvedAt: meetingRecord.approvedAt,
-      participants: cloneParticipants(meetingRecord.participants),
-      selectedPlace: clonePlace(meetingRecord.selectedPlace),
-      suggestedPlaces: meetingRecord.suggestedPlaces.map((place) => clonePlace(place)),
-    }));
-}
-
-export function repeatSavedMeeting(
-  ownerUserId: string,
-  meetingId: string,
-): { session: MeetingSessionData; expiresAt: string } | null {
-  const savedMeetingRecord = savedMeetingsByMeetingId.get(meetingId);
-  if (!savedMeetingRecord || savedMeetingRecord.ownerUserId !== ownerUserId) {
+  const session = await getMeetingSession(meetingId);
+  if (!session) {
     return null;
   }
 
-  return createMeetingSession(
+  return { session, vote };
+}
+
+export async function getSavedMeetingsForUser(ownerUserId: string): Promise<SavedMeetingSummary[]> {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("meetings")
+    .select("id, approved_at, participants_json, selected_place_json, suggested_places_json")
+    .eq("owner_user_id", ownerUserId)
+    .order("approved_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Opgeslagen meetings ophalen mislukt: ${error.message}`);
+  }
+
+  return (data ?? []).map((meeting) => {
+    const selectedPlace = meeting.selected_place_json as SuitablePlace;
+    const suggestedPlaces = normalizeSuggestedPlaces(
+      selectedPlace,
+      (meeting.suggested_places_json as SuitablePlace[]) ?? [],
+    );
+
+    return {
+      meetingId: meeting.id as string,
+      approvedAt: meeting.approved_at as string,
+      participants: cloneParticipants((meeting.participants_json as MeetingSessionParticipant[]) ?? []),
+      selectedPlace: clonePlace(selectedPlace),
+      suggestedPlaces,
+    };
+  });
+}
+
+export async function repeatSavedMeeting(
+  ownerUserId: string,
+  meetingId: string,
+): Promise<{ session: MeetingSessionData; expiresAt: string } | null> {
+  const savedMeeting = await getMeetingRowById(meetingId);
+  if (!savedMeeting || savedMeeting.ownerUserId !== ownerUserId) {
+    return null;
+  }
+
+  return await createMeetingSession(
     {
-      participants: cloneParticipants(savedMeetingRecord.participants),
-      geographicCenter: savedMeetingRecord.geographicCenter
-        ? cloneLatLng(savedMeetingRecord.geographicCenter)
+      participants: cloneParticipants(savedMeeting.participantsJson),
+      geographicCenter: savedMeeting.geographicCenterJson
+        ? cloneLatLng(savedMeeting.geographicCenterJson)
         : null,
-      suggestedPlaces: savedMeetingRecord.suggestedPlaces.map((place) => clonePlace(place)),
-      selectedPlace: clonePlace(savedMeetingRecord.selectedPlace),
-      participantRoutes: cloneParticipantRoutes(savedMeetingRecord.participantRoutes),
+      suggestedPlaces: getSuggestedPlacesFromRow(savedMeeting),
+      selectedPlace: clonePlace(savedMeeting.selectedPlaceJson),
+      participantRoutes: cloneParticipantRoutes(savedMeeting.participantRoutesJson),
     },
     ownerUserId,
   );

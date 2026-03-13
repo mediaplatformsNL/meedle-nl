@@ -11,10 +11,10 @@ function getMeetingIdFromQuery(queryValue: string | string[] | undefined): strin
   return meetingId.trim().length > 0 ? meetingId : null;
 }
 
-export default function handler(
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<MeetingSessionData | { message: string }>,
-) {
+): Promise<void> {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     res.status(405).json({ message: "Methode niet toegestaan." });
@@ -27,11 +27,16 @@ export default function handler(
     return;
   }
 
-  const session = getMeetingSession(meetingId);
-  if (!session) {
-    res.status(404).json({ message: "Meeting-sessie niet gevonden of verlopen." });
-    return;
-  }
+  try {
+    const session = await getMeetingSession(meetingId);
+    if (!session) {
+      res.status(404).json({ message: "Meeting-sessie niet gevonden of verlopen." });
+      return;
+    }
 
-  res.status(200).json(session);
+    res.status(200).json(session);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Meetingdata kon niet worden opgehaald." });
+  }
 }
