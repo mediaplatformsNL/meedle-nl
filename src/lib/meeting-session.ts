@@ -39,6 +39,8 @@ export interface MeetingLocationVote {
   createdAt: string;
 }
 
+export const MAX_VOTE_COMMENT_LENGTH = 120;
+
 export interface MeetingSessionCreateInput {
   participants: MeetingSessionParticipant[];
   geographicCenter: MeetingLatLngLiteral | null;

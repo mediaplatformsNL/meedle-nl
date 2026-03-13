@@ -2,6 +2,7 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { GOOGLE_MAPS_API_KEY } from "../../lib/config";
+import { MAX_VOTE_COMMENT_LENGTH } from "../../lib/meeting-session";
 import type { MeetingSessionData, MeetingSessionRouteOption } from "../../lib/meeting-session";
 import type { SuitablePlace } from "../../lib/places";
 
@@ -124,15 +125,28 @@ export default function MeetingDetailPage() {
   const [participantName, setParticipantName] = useState("");
   const [comment, setComment] = useState("");
 
-  const voteCountsByPlace = useMemo(() => {
-    const countByPlace = new Map<string, number>();
+  const votesByPlace = useMemo(() => {
+    const groupedVotesByPlace = new Map<string, MeetingSessionData["votes"]>();
 
     for (const vote of meeting?.votes ?? []) {
-      countByPlace.set(vote.placeId, (countByPlace.get(vote.placeId) ?? 0) + 1);
+      const existingVotesForPlace = groupedVotesByPlace.get(vote.placeId);
+      if (existingVotesForPlace) {
+        existingVotesForPlace.push(vote);
+      } else {
+        groupedVotesByPlace.set(vote.placeId, [vote]);
+      }
     }
 
-    return countByPlace;
+    return groupedVotesByPlace;
   }, [meeting?.votes]);
+
+  const voteCountsByPlace = useMemo(() => {
+    const countByPlace = new Map<string, number>();
+    for (const [placeId, votes] of votesByPlace.entries()) {
+      countByPlace.set(placeId, votes.length);
+    }
+    return countByPlace;
+  }, [votesByPlace]);
 
   useEffect(() => {
     let isUnmounted = false;
@@ -251,7 +265,7 @@ export default function MeetingDetailPage() {
       } catch (error) {
         console.error(error);
       }
-    }, 15000);
+    }, 5000);
 
     return () => {
       isCancelled = true;
@@ -394,8 +408,14 @@ export default function MeetingDetailPage() {
     }
 
     const trimmedName = participantName.trim();
+    const trimmedComment = comment.trim();
     if (!trimmedName || !selectedVotePlaceId) {
       setSubmitErrorMessage("Naam en gekozen locatie zijn verplicht om te stemmen.");
+      setSubmitStatusMessage(null);
+      return;
+    }
+    if (trimmedComment.length > MAX_VOTE_COMMENT_LENGTH) {
+      setSubmitErrorMessage(`Reactie mag maximaal ${MAX_VOTE_COMMENT_LENGTH} tekens bevatten.`);
       setSubmitStatusMessage(null);
       return;
     }
@@ -413,7 +433,7 @@ export default function MeetingDetailPage() {
         body: JSON.stringify({
           participantName: trimmedName,
           placeId: selectedVotePlaceId,
-          comment: comment.trim() ? comment.trim() : null,
+          comment: trimmedComment ? trimmedComment : null,
         }),
       });
 
@@ -468,7 +488,16 @@ export default function MeetingDetailPage() {
                 <h2>Voorgestelde locaties ({meeting.suggestedPlaces.length})</h2>
                 <ul className="meeting-page__list">
                   {meeting.suggestedPlaces.map((place) => {
+                    const votesForPlace = votesByPlace.get(place.id) ?? [];
                     const voteCount = voteCountsByPlace.get(place.id) ?? 0;
+                    const commentCount = votesForPlace.filter((vote) => vote.comment).length;
+                    const recentComments = [...votesForPlace]
+                      .filter((vote) => vote.comment)
+                      .sort(
+                        (a, b) =>
+                          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+                      )
+                      .slice(0, 3);
                     const isSelected = selectedVotePlaceId === place.id;
                     return (
                       <li
@@ -482,8 +511,18 @@ export default function MeetingDetailPage() {
                         <p className="meeting-page__place-name">{place.name}</p>
                         <p>{place.address}</p>
                         <p>
-                          Type: {formatPlaceCategory(place.type)} · Stemmen: {voteCount}
+                          Type: {formatPlaceCategory(place.type)} · Stemmen: {voteCount} · Reacties:{" "}
+                          {commentCount}
                         </p>
+                        {recentComments.length > 0 && (
+                          <ul className="meeting-page__inline-comments">
+                            {recentComments.map((vote) => (
+                              <li key={vote.id} className="meeting-page__inline-comment">
+                                <strong>{vote.participantName}:</strong> {vote.comment}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                         <button type="button" onClick={() => setSelectedVotePlaceId(place.id)}>
                           {isSelected ? "Gekozen voor stem" : "Kies voor stem"}
                         </button>
@@ -494,7 +533,7 @@ export default function MeetingDetailPage() {
               </section>
 
               <section className="meeting-page__section">
-                <h2>Plaats je stem/reactie</h2>
+                <h2>Plaats je stem en korte reactie</h2>
                 <form className="meeting-page__vote-form" onSubmit={handleSubmitVote}>
                   <label htmlFor="meeting-vote-name">Naam *</label>
                   <input
@@ -505,14 +544,21 @@ export default function MeetingDetailPage() {
                     placeholder="Bijv. Sam Verbeek"
                   />
 
-                  <label htmlFor="meeting-vote-comment">Reactie (optioneel)</label>
+                  <label htmlFor="meeting-vote-comment">
+                    Reactie (optioneel, max {MAX_VOTE_COMMENT_LENGTH} tekens)
+                  </label>
                   <textarea
                     id="meeting-vote-comment"
                     value={comment}
                     onChange={(event) => setComment(event.target.value)}
                     rows={3}
+                    maxLength={MAX_VOTE_COMMENT_LENGTH}
+                    aria-describedby="meeting-vote-comment-length"
                     placeholder="Bijv. Goed bereikbaar met OV."
                   />
+                  <p id="meeting-vote-comment-length" className="meeting-page__comment-counter">
+                    {comment.length}/{MAX_VOTE_COMMENT_LENGTH}
+                  </p>
 
                   <button type="submit" disabled={isSubmittingVote || !selectedVotePlaceId}>
                     {isSubmittingVote ? "Stem plaatsen..." : "Stem plaatsen"}
