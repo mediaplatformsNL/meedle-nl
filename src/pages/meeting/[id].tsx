@@ -172,11 +172,14 @@ export default function MeetingDetailPage() {
       return;
     }
 
-    const meetingId = Array.isArray(router.query.id) ? router.query.id[0] : router.query.id;
-    if (typeof meetingId !== "string" || meetingId.trim().length === 0) {
+    const meetingIdFromQuery = Array.isArray(router.query.id)
+      ? (router.query.id[0] ?? "")
+      : (router.query.id ?? "");
+    if (typeof meetingIdFromQuery !== "string" || meetingIdFromQuery.trim().length === 0) {
       setLoadingError("Ongeldige meeting-id.");
       return;
     }
+    const meetingId = meetingIdFromQuery;
 
     let isCancelled = false;
 
@@ -225,10 +228,13 @@ export default function MeetingDetailPage() {
       return;
     }
 
-    const meetingId = Array.isArray(router.query.id) ? router.query.id[0] : router.query.id;
-    if (typeof meetingId !== "string" || meetingId.trim().length === 0) {
+    const meetingIdFromQuery = Array.isArray(router.query.id)
+      ? (router.query.id[0] ?? "")
+      : (router.query.id ?? "");
+    if (typeof meetingIdFromQuery !== "string" || meetingIdFromQuery.trim().length === 0) {
       return;
     }
+    const meetingId = meetingIdFromQuery;
 
     let isCancelled = false;
     const intervalId = window.setInterval(async () => {
