@@ -677,7 +677,11 @@ export default function Map() {
         setHasTriedToContinue(false);
         setParticipantGeocodeErrors({});
         setGeographicCenter(session.geographicCenter);
-        setSuitablePlaces([session.selectedPlace]);
+        const restoredSuggestedPlaces =
+          Array.isArray(session.suggestedPlaces) && session.suggestedPlaces.length > 0
+            ? session.suggestedPlaces
+            : [session.selectedPlace];
+        setSuitablePlaces(restoredSuggestedPlaces);
         setSelectedPlaceId(session.selectedPlace.id);
         setParticipantRoutes(restoredRoutes);
         setActiveRouteModeByParticipant(activeModes);
@@ -688,8 +692,10 @@ export default function Map() {
           `Meeting-sessie geladen met ${session.participants.length} deelnemer(s).`,
         );
 
-        const meetingUrl = new URL(window.location.pathname, window.location.origin);
-        meetingUrl.searchParams.set("meeting", session.meetingId);
+        const meetingUrl = new URL(
+          `/meeting/${encodeURIComponent(session.meetingId)}`,
+          window.location.origin,
+        );
         setMeetingLink(meetingUrl.toString());
         setMeetingLinkStatusMessage(
           `Sessie geladen. Meeting is goedgekeurd op ${new Date(session.approvedAt).toLocaleString("nl-NL")}.`,
@@ -1071,6 +1077,7 @@ export default function Map() {
         body: JSON.stringify({
           participants,
           geographicCenter,
+          suggestedPlaces: suitablePlaces,
           selectedPlace,
           participantRoutes: participantRoutes as MeetingSessionParticipantRoutes,
         }),
@@ -1081,8 +1088,10 @@ export default function Map() {
       }
 
       const payload = (await response.json()) as CreateMeetingSessionResponse;
-      const meetingUrl = new URL(window.location.pathname, window.location.origin);
-      meetingUrl.searchParams.set("meeting", payload.meetingId);
+      const meetingUrl = new URL(
+        `/meeting/${encodeURIComponent(payload.meetingId)}`,
+        window.location.origin,
+      );
 
       setMeetingLink(meetingUrl.toString());
       setLoadedMeetingId(payload.meetingId);

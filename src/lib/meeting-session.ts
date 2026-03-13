@@ -30,19 +30,38 @@ export interface MeetingSessionParticipantRouteSet {
 
 export type MeetingSessionParticipantRoutes = Record<number, MeetingSessionParticipantRouteSet>;
 
+export interface MeetingLocationVote {
+  id: string;
+  participantName: string;
+  placeId: string;
+  placeName: string;
+  comment: string | null;
+  createdAt: string;
+}
+
 export interface MeetingSessionCreateInput {
   participants: MeetingSessionParticipant[];
   geographicCenter: MeetingLatLngLiteral | null;
+  suggestedPlaces?: SuitablePlace[];
   selectedPlace: SuitablePlace;
   participantRoutes: MeetingSessionParticipantRoutes;
 }
 
-export interface MeetingSessionData extends MeetingSessionCreateInput {
+export interface MeetingSessionData
+  extends Omit<MeetingSessionCreateInput, "suggestedPlaces"> {
   meetingId: string;
   approvedAt: string;
+  suggestedPlaces: SuitablePlace[];
+  votes: MeetingLocationVote[];
 }
 
 export interface CreateMeetingSessionResponse {
   meetingId: string;
   expiresAt: string;
+}
+
+export interface AddMeetingVoteInput {
+  participantName: string;
+  placeId: string;
+  comment: string | null;
 }
