@@ -11,10 +11,14 @@ const MAP_BOUNDS_PADDING_PX = 96;
 const PARTICIPANT_MARKER_ICON_URL = "https://maps.google.com/mapfiles/ms/icons/blue-dot.png";
 const MIDPOINT_MARKER_ICON_URL = "https://maps.google.com/mapfiles/ms/icons/purple-dot.png";
 const PLACE_MARKER_ICON_URL = "https://maps.google.com/mapfiles/ms/icons/green-dot.png";
+const DRIVING_ROUTE_COLOR = "#2563eb";
+const TRANSIT_ROUTE_COLOR = "#ea580c";
 
 type ParticipantField = "name" | "location";
 type ParticipantCoordinates = { latitude: number; longitude: number };
 type LatLngLiteral = { lat: number; lng: number };
+type RouteMode = "driving" | "transit";
+type RouteFetchStatus = "ok" | "unavailable" | "error";
 
 interface GoogleMapsMapInstance {
   setCenter(latLng: LatLngLiteral): void;
@@ -24,6 +28,11 @@ interface GoogleMapsMapInstance {
 
 interface GoogleMapsLatLngBoundsInstance {
   extend(latLng: LatLngLiteral): void;
+}
+
+interface GoogleMapsLatLngInstance {
+  lat(): number;
+  lng(): number;
 }
 
 type MarkerLabel =
@@ -39,6 +48,52 @@ interface GoogleMapsMarkerInstance {
   setMap(map: GoogleMapsMapInstance | null): void;
 }
 
+interface GoogleMapsPolylineSymbol {
+  path: string;
+  strokeOpacity?: number;
+  scale?: number;
+}
+
+interface GoogleMapsPolylineInstance {
+  setMap(map: GoogleMapsMapInstance | null): void;
+}
+
+interface GoogleMapsDirectionsLegDistanceOrDuration {
+  text?: string;
+  value?: number;
+}
+
+interface GoogleMapsDirectionsLegInstance {
+  distance?: GoogleMapsDirectionsLegDistanceOrDuration;
+  duration?: GoogleMapsDirectionsLegDistanceOrDuration;
+}
+
+interface GoogleMapsDirectionsRouteInstance {
+  legs?: GoogleMapsDirectionsLegInstance[];
+  overview_path?: GoogleMapsLatLngInstance[];
+}
+
+interface GoogleMapsDirectionsResultInstance {
+  routes?: GoogleMapsDirectionsRouteInstance[];
+}
+
+interface GoogleMapsDirectionsRequest {
+  origin: LatLngLiteral;
+  destination: LatLngLiteral;
+  travelMode: "DRIVING" | "TRANSIT";
+  provideRouteAlternatives?: boolean;
+  transitOptions?: {
+    departureTime: Date;
+  };
+}
+
+interface GoogleMapsDirectionsServiceInstance {
+  route(
+    request: GoogleMapsDirectionsRequest,
+    callback: (result: GoogleMapsDirectionsResultInstance | null, status: string) => void,
+  ): void;
+}
+
 interface Participant {
   id: number;
   name: string;
@@ -49,6 +104,19 @@ interface Participant {
 
 type ParticipantErrors = Partial<Record<ParticipantField, string>>;
 type ParticipantGeocodeErrors = Record<number, string>;
+
+interface ParticipantRouteOption {
+  status: RouteFetchStatus;
+  distanceText: string | null;
+  durationText: string | null;
+  path: LatLngLiteral[];
+  message: string;
+}
+
+interface ParticipantRouteSet {
+  driving: ParticipantRouteOption;
+  transit: ParticipantRouteOption;
+}
 
 interface GeocodingApiResponse {
   status: string;
@@ -90,6 +158,19 @@ declare global {
           label?: MarkerLabel;
           icon?: string;
         }) => GoogleMapsMarkerInstance;
+        Polyline: new (options: {
+          map: GoogleMapsMapInstance;
+          path: LatLngLiteral[];
+          strokeColor: string;
+          strokeOpacity: number;
+          strokeWeight: number;
+          icons?: Array<{
+            icon: GoogleMapsPolylineSymbol;
+            offset?: string;
+            repeat?: string;
+          }>;
+        }) => GoogleMapsPolylineInstance;
+        DirectionsService: new () => GoogleMapsDirectionsServiceInstance;
         LatLngBounds: new () => GoogleMapsLatLngBoundsInstance;
       };
     };
@@ -102,6 +183,97 @@ function truncateMarkerLabel(label: string, maxLength = 28): string {
   }
 
   return `${label.slice(0, maxLength - 1)}…`;
+}
+
+function isGeocodedParticipant(
+  participant: Participant,
+): participant is Participant & { latitude: number; longitude: number } {
+  return typeof participant.latitude === "number" && typeof participant.longitude === "number";
+}
+
+function routeModeLabel(mode: RouteMode): string {
+  return mode === "driving" ? "autoroute" : "OV-route";
+}
+
+function createUnavailableRouteOption(
+  mode: RouteMode,
+  status: RouteFetchStatus,
+  message?: string,
+): ParticipantRouteOption {
+  const fallbackMessage =
+    status === "error"
+      ? `Route ophalen voor ${routeModeLabel(mode)} is mislukt.`
+      : `Geen ${routeModeLabel(mode)} beschikbaar.`;
+
+  return {
+    status,
+    distanceText: null,
+    durationText: null,
+    path: [],
+    message: message ?? fallbackMessage,
+  };
+}
+
+function summarizeRouteOption(routeOption: ParticipantRouteOption): string {
+  if (routeOption.status !== "ok") {
+    return routeOption.message;
+  }
+
+  return `${routeOption.durationText ?? "Reistijd onbekend"} · ${
+    routeOption.distanceText ?? "Afstand onbekend"
+  }`;
+}
+
+async function fetchDirectionsRoute(
+  directionsService: GoogleMapsDirectionsServiceInstance,
+  origin: LatLngLiteral,
+  destination: LatLngLiteral,
+  mode: RouteMode,
+): Promise<ParticipantRouteOption> {
+  const request: GoogleMapsDirectionsRequest = {
+    origin,
+    destination,
+    travelMode: mode === "driving" ? "DRIVING" : "TRANSIT",
+    provideRouteAlternatives: false,
+  };
+
+  if (mode === "transit") {
+    request.transitOptions = { departureTime: new Date() };
+  }
+
+  return new Promise((resolve) => {
+    directionsService.route(request, (result, status) => {
+      if (status !== "OK" || !result?.routes?.length) {
+        if (status === "ZERO_RESULTS" || status === "NOT_FOUND") {
+          resolve(createUnavailableRouteOption(mode, "unavailable"));
+          return;
+        }
+
+        resolve(
+          createUnavailableRouteOption(
+            mode,
+            "error",
+            `Route ophalen voor ${routeModeLabel(mode)} is mislukt (status: ${status}).`,
+          ),
+        );
+        return;
+      }
+
+      const route = result.routes[0];
+      const firstLeg = route.legs?.[0];
+      const distanceText = firstLeg?.distance?.text?.trim() ?? null;
+      const durationText = firstLeg?.duration?.text?.trim() ?? null;
+      const path = (route.overview_path ?? []).map((point) => ({ lat: point.lat(), lng: point.lng() }));
+
+      resolve({
+        status: "ok",
+        distanceText,
+        durationText,
+        path,
+        message: `${routeModeLabel(mode)} beschikbaar.`,
+      });
+    });
+  });
 }
 
 function loadGoogleMapsScript(apiKey: string): Promise<void> {
@@ -178,6 +350,7 @@ export default function Map() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<GoogleMapsMapInstance | null>(null);
   const markerRefs = useRef<GoogleMapsMarkerInstance[]>([]);
+  const routePolylineRefs = useRef<GoogleMapsPolylineInstance[]>([]);
   const nextIdRef = useRef(2);
   const [participants, setParticipants] = useState<Participant[]>([
     { id: 1, name: "", location: "", latitude: null, longitude: null },
@@ -193,6 +366,14 @@ export default function Map() {
   );
   const [geographicCenter, setGeographicCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [suitablePlaces, setSuitablePlaces] = useState<SuitablePlace[]>([]);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [participantRoutes, setParticipantRoutes] = useState<Record<number, ParticipantRouteSet>>({});
+  const [isCalculatingRoutes, setIsCalculatingRoutes] = useState(false);
+  const [routeStatusMessage, setRouteStatusMessage] = useState<string | null>(null);
+  const [isRouteStatusError, setIsRouteStatusError] = useState(false);
+  const [activeRouteModeByParticipant, setActiveRouteModeByParticipant] = useState<
+    Record<number, RouteMode>
+  >({});
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -207,9 +388,18 @@ export default function Map() {
     (participant) => Object.keys(participantErrors[participant.id] ?? {}).length > 0,
   );
   const canContinue = participants.length > 0 && !hasFieldErrors;
-  const geocodedParticipantCount = participants.filter(
-    (participant) => participant.latitude !== null && participant.longitude !== null,
-  ).length;
+  const geocodedParticipantCount = participants.filter(isGeocodedParticipant).length;
+  const hasAllParticipantsGeocoded = participants.length > 0 && participants.every(isGeocodedParticipant);
+  const selectedPlace = useMemo(
+    () => suitablePlaces.find((place) => place.id === selectedPlaceId) ?? null,
+    [selectedPlaceId, suitablePlaces],
+  );
+  const canCalculateRoutes =
+    hasAllParticipantsGeocoded &&
+    selectedPlace !== null &&
+    !isGeocoding &&
+    !isSearchingSuitablePlaces &&
+    !isCalculatingRoutes;
 
   useEffect(() => {
     let isUnmounted = false;
@@ -239,6 +429,8 @@ export default function Map() {
       isUnmounted = true;
       markerRefs.current.forEach((marker) => marker.setMap(null));
       markerRefs.current = [];
+      routePolylineRefs.current.forEach((routePolyline) => routePolyline.setMap(null));
+      routePolylineRefs.current = [];
       mapInstanceRef.current = null;
     };
   }, []);
@@ -327,6 +519,16 @@ export default function Map() {
       registerPosition(place.location);
     });
 
+    Object.values(participantRoutes).forEach((routeSet) => {
+      [routeSet.driving, routeSet.transit].forEach((routeOption) => {
+        if (routeOption.status !== "ok") {
+          return;
+        }
+
+        routeOption.path.forEach((position) => registerPosition(position));
+      });
+    });
+
     markerRefs.current = nextMarkers;
 
     if (markerCount === 0) {
@@ -342,7 +544,58 @@ export default function Map() {
     }
 
     map.fitBounds(bounds, MAP_BOUNDS_PADDING_PX);
-  }, [participants, geographicCenter, suitablePlaces]);
+  }, [participants, geographicCenter, suitablePlaces, participantRoutes]);
+
+  useEffect(() => {
+    const googleMaps = window.google?.maps;
+    if (!mapInstanceRef.current || !googleMaps) {
+      return;
+    }
+
+    const map = mapInstanceRef.current;
+    const nextRoutePolylines: GoogleMapsPolylineInstance[] = [];
+    const transitDashSymbol: GoogleMapsPolylineSymbol = {
+      path: "M 0,-1 0,1",
+      strokeOpacity: 1,
+      scale: 3,
+    };
+
+    routePolylineRefs.current.forEach((routePolyline) => routePolyline.setMap(null));
+    routePolylineRefs.current = [];
+
+    Object.values(participantRoutes).forEach((routeSet) => {
+      if (routeSet.driving.status === "ok" && routeSet.driving.path.length > 0) {
+        const drivingPolyline = new googleMaps.Polyline({
+          map,
+          path: routeSet.driving.path,
+          strokeColor: DRIVING_ROUTE_COLOR,
+          strokeOpacity: 0.85,
+          strokeWeight: 5,
+        });
+        nextRoutePolylines.push(drivingPolyline);
+      }
+
+      if (routeSet.transit.status === "ok" && routeSet.transit.path.length > 0) {
+        const transitPolyline = new googleMaps.Polyline({
+          map,
+          path: routeSet.transit.path,
+          strokeColor: TRANSIT_ROUTE_COLOR,
+          strokeOpacity: 0,
+          strokeWeight: 5,
+          icons: [
+            {
+              icon: transitDashSymbol,
+              offset: "0",
+              repeat: "12px",
+            },
+          ],
+        });
+        nextRoutePolylines.push(transitPolyline);
+      }
+    });
+
+    routePolylineRefs.current = nextRoutePolylines;
+  }, [participantRoutes]);
 
   function handleAddParticipant() {
     if (hasReachedParticipantLimit) {
@@ -375,6 +628,11 @@ export default function Map() {
     });
     setGeographicCenter(null);
     setSuitablePlaces([]);
+    setSelectedPlaceId(null);
+    setParticipantRoutes({});
+    setRouteStatusMessage(null);
+    setIsRouteStatusError(false);
+    setActiveRouteModeByParticipant({});
     setContinueStatusMessage(null);
   }
 
@@ -404,6 +662,11 @@ export default function Map() {
       });
       setGeographicCenter(null);
       setSuitablePlaces([]);
+      setSelectedPlaceId(null);
+      setParticipantRoutes({});
+      setRouteStatusMessage(null);
+      setIsRouteStatusError(false);
+      setActiveRouteModeByParticipant({});
     }
     setContinueStatusMessage(null);
   }
@@ -425,6 +688,11 @@ export default function Map() {
     if (!canContinue) {
       setGeographicCenter(null);
       setSuitablePlaces([]);
+      setSelectedPlaceId(null);
+      setParticipantRoutes({});
+      setRouteStatusMessage(null);
+      setIsRouteStatusError(false);
+      setActiveRouteModeByParticipant({});
       setContinueStatusMessage(null);
       return;
     }
@@ -432,6 +700,11 @@ export default function Map() {
     setIsGeocoding(true);
     setGeographicCenter(null);
     setSuitablePlaces([]);
+    setSelectedPlaceId(null);
+    setParticipantRoutes({});
+    setRouteStatusMessage(null);
+    setIsRouteStatusError(false);
+    setActiveRouteModeByParticipant({});
     setContinueStatusMessage(null);
     try {
       const geocodeResults = await Promise.all(
@@ -501,6 +774,13 @@ export default function Map() {
         setIsSearchingSuitablePlaces(true);
         const places = await findSuitablePlacesNearMidpoint(midpoint);
         setSuitablePlaces(places);
+        setSelectedPlaceId((currentSelectedPlaceId) => {
+          if (currentSelectedPlaceId && places.some((place) => place.id === currentSelectedPlaceId)) {
+            return currentSelectedPlaceId;
+          }
+
+          return places[0]?.id ?? null;
+        });
 
         if (places.length === 0) {
           setContinueStatusMessage(
@@ -521,6 +801,101 @@ export default function Map() {
       }
     } finally {
       setIsGeocoding(false);
+    }
+  }
+
+  function handleSelectSuggestedPlace(placeId: string) {
+    setSelectedPlaceId(placeId);
+    setParticipantRoutes({});
+    setRouteStatusMessage(null);
+    setIsRouteStatusError(false);
+    setActiveRouteModeByParticipant({});
+  }
+
+  function handleRouteTabChange(participantId: number, mode: RouteMode) {
+    setActiveRouteModeByParticipant((previous) => ({
+      ...previous,
+      [participantId]: mode,
+    }));
+  }
+
+  async function handleCalculateRoutes() {
+    if (!selectedPlace || !window.google?.maps?.DirectionsService) {
+      setRouteStatusMessage("Google Directions service is nog niet beschikbaar.");
+      setIsRouteStatusError(true);
+      return;
+    }
+
+    const geocodedParticipants = participants.filter(isGeocodedParticipant);
+    if (geocodedParticipants.length === 0) {
+      setRouteStatusMessage("Er zijn geen deelnemers met geldige vertrekcoördinaten.");
+      setIsRouteStatusError(true);
+      return;
+    }
+
+    setIsCalculatingRoutes(true);
+    setParticipantRoutes({});
+    setRouteStatusMessage(null);
+    setIsRouteStatusError(false);
+    try {
+      const directionsService = new window.google.maps.DirectionsService();
+      const routeEntries = await Promise.all(
+        geocodedParticipants.map(async (participant) => {
+          const origin: LatLngLiteral = { lat: participant.latitude, lng: participant.longitude };
+          const destination: LatLngLiteral = selectedPlace.location;
+          const [drivingRoute, transitRoute] = await Promise.all([
+            fetchDirectionsRoute(directionsService, origin, destination, "driving"),
+            fetchDirectionsRoute(directionsService, origin, destination, "transit"),
+          ]);
+
+          return {
+            participantId: participant.id,
+            routes: {
+              driving: drivingRoute,
+              transit: transitRoute,
+            },
+          };
+        }),
+      );
+
+      const nextParticipantRoutes: Record<number, ParticipantRouteSet> = {};
+      const nextActiveModes: Record<number, RouteMode> = {};
+      let fullRouteCount = 0;
+      let anyRouteCount = 0;
+
+      routeEntries.forEach((entry) => {
+        nextParticipantRoutes[entry.participantId] = entry.routes;
+        nextActiveModes[entry.participantId] = "driving";
+
+        const hasDrivingRoute = entry.routes.driving.status === "ok";
+        const hasTransitRoute = entry.routes.transit.status === "ok";
+
+        if (hasDrivingRoute || hasTransitRoute) {
+          anyRouteCount += 1;
+        }
+        if (hasDrivingRoute && hasTransitRoute) {
+          fullRouteCount += 1;
+        }
+      });
+
+      setParticipantRoutes(nextParticipantRoutes);
+      setActiveRouteModeByParticipant(nextActiveModes);
+
+      if (anyRouteCount === 0) {
+        setRouteStatusMessage("Er konden geen routes worden opgehaald voor de geselecteerde locatie.");
+        setIsRouteStatusError(true);
+      } else {
+        setRouteStatusMessage(
+          `${anyRouteCount} deelnemer(s) hebben minimaal één routeoptie; ${fullRouteCount} deelnemer(s) hebben zowel auto als OV.`,
+        );
+        setIsRouteStatusError(false);
+      }
+    } catch (error) {
+      console.error(error);
+      setRouteStatusMessage("Routeberekening is mislukt. Probeer het opnieuw.");
+      setIsRouteStatusError(true);
+    } finally {
+      setIsCalculatingRoutes(false);
     }
   }
 
@@ -628,12 +1003,14 @@ export default function Map() {
         <button
           type="submit"
           className="participants-panel__continue"
-          disabled={isGeocoding || isSearchingSuitablePlaces}
+          disabled={isGeocoding || isSearchingSuitablePlaces || isCalculatingRoutes}
         >
           {isGeocoding
             ? "Bezig met geocoderen..."
             : isSearchingSuitablePlaces
               ? "Zoeken naar geschikte locaties..."
+              : isCalculatingRoutes
+                ? "Routes berekenen..."
               : "Doorgaan"}
         </button>
 
@@ -662,10 +1039,17 @@ export default function Map() {
         )}
         {canContinue && suitablePlaces.length > 0 && (
           <section className="participants-panel__places" aria-label="Geschikte locaties">
-            <h3>Geschikte locaties</h3>
+            <h3>Geschikte locaties (selecteer er één)</h3>
             <ul>
               {suitablePlaces.map((place) => (
-                <li key={place.id}>
+                <li
+                  key={place.id}
+                  className={
+                    selectedPlaceId === place.id
+                      ? "participants-panel__place participants-panel__place--selected"
+                      : "participants-panel__place"
+                  }
+                >
                   <p className="participants-panel__place-name">{place.name}</p>
                   <p>{place.address}</p>
                   <p>
@@ -675,8 +1059,125 @@ export default function Map() {
                   <p>
                     Locatie: {place.location.lat.toFixed(6)}, {place.location.lng.toFixed(6)}
                   </p>
+                  <button
+                    type="button"
+                    className="participants-panel__place-select"
+                    onClick={() => handleSelectSuggestedPlace(place.id)}
+                    aria-pressed={selectedPlaceId === place.id}
+                  >
+                    {selectedPlaceId === place.id ? "Geselecteerd" : "Selecteer"}
+                  </button>
                 </li>
               ))}
+            </ul>
+          </section>
+        )}
+
+        {canContinue && suitablePlaces.length > 0 && (
+          <section className="participants-panel__routes" aria-label="Routeberekening">
+            <h3>Routes naar geselecteerde locatie</h3>
+            <p className="participants-panel__route-target">
+              {selectedPlace
+                ? `Bestemming: ${selectedPlace.name} (${selectedPlace.address})`
+                : "Selecteer eerst een voorgestelde locatie."}
+            </p>
+            <button
+              type="button"
+              className="participants-panel__routes-button"
+              onClick={handleCalculateRoutes}
+              disabled={!canCalculateRoutes}
+            >
+              {isCalculatingRoutes ? "Routes berekenen..." : "Bereken auto- en OV-routes"}
+            </button>
+            {routeStatusMessage && (
+              <p
+                className={
+                  isRouteStatusError
+                    ? "participants-panel__validation-message"
+                    : "participants-panel__success-message"
+                }
+                role={isRouteStatusError ? "alert" : "status"}
+              >
+                {routeStatusMessage}
+              </p>
+            )}
+          </section>
+        )}
+
+        {Object.keys(participantRoutes).length > 0 && selectedPlace && (
+          <section className="participants-panel__routes-results" aria-label="Routes per deelnemer">
+            <h3>Route-opties per deelnemer</h3>
+            <ul>
+              {participants.map((participant, index) => {
+                const routeSet = participantRoutes[participant.id];
+                if (!routeSet) {
+                  return null;
+                }
+
+                const participantDisplayName = participant.name.trim() || `Deelnemer ${index + 1}`;
+                const activeMode = activeRouteModeByParticipant[participant.id] ?? "driving";
+                const activeRoute = activeMode === "driving" ? routeSet.driving : routeSet.transit;
+                const tabBaseId = `participant-route-tabs-${participant.id}`;
+
+                return (
+                  <li key={participant.id} className="participants-panel__route-card">
+                    <p className="participants-panel__route-participant">{participantDisplayName}</p>
+                    <p className="participants-panel__route-summary">
+                      Auto: {summarizeRouteOption(routeSet.driving)}
+                    </p>
+                    <p className="participants-panel__route-summary">
+                      Openbaar vervoer: {summarizeRouteOption(routeSet.transit)}
+                    </p>
+                    <div className="participants-panel__route-tabs" role="tablist">
+                      <button
+                        type="button"
+                        role="tab"
+                        id={`${tabBaseId}-driving`}
+                        aria-selected={activeMode === "driving"}
+                        aria-controls={`${tabBaseId}-panel`}
+                        className={
+                          activeMode === "driving"
+                            ? "participants-panel__route-tab participants-panel__route-tab--active"
+                            : "participants-panel__route-tab"
+                        }
+                        onClick={() => handleRouteTabChange(participant.id, "driving")}
+                      >
+                        Auto
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        id={`${tabBaseId}-transit`}
+                        aria-selected={activeMode === "transit"}
+                        aria-controls={`${tabBaseId}-panel`}
+                        className={
+                          activeMode === "transit"
+                            ? "participants-panel__route-tab participants-panel__route-tab--active"
+                            : "participants-panel__route-tab"
+                        }
+                        onClick={() => handleRouteTabChange(participant.id, "transit")}
+                      >
+                        Openbaar vervoer
+                      </button>
+                    </div>
+                    <div
+                      className="participants-panel__route-panel"
+                      role="tabpanel"
+                      id={`${tabBaseId}-panel`}
+                      aria-labelledby={`${tabBaseId}-${activeMode}`}
+                    >
+                      {activeRoute.status === "ok" ? (
+                        <>
+                          <p>Reistijd: {activeRoute.durationText ?? "Onbekend"}</p>
+                          <p>Afstand: {activeRoute.distanceText ?? "Onbekend"}</p>
+                        </>
+                      ) : (
+                        <p className="participant-row__error">{activeRoute.message}</p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
@@ -701,6 +1202,14 @@ export default function Map() {
           <li>
             <span className="map-legend__swatch map-legend__swatch--place" aria-hidden="true" />
             Locatiesuggesties ({suitablePlaces.length}) met naam en type
+          </li>
+          <li>
+            <span className="map-legend__swatch map-legend__swatch--driving-route" aria-hidden="true" />
+            Autoroute (doorgetrokken blauw)
+          </li>
+          <li>
+            <span className="map-legend__swatch map-legend__swatch--transit-route" aria-hidden="true" />
+            OV-route (oranje stippellijn)
           </li>
         </ul>
       </aside>
