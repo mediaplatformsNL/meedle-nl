@@ -6,14 +6,31 @@ const NETHERLANDS_ZOOM = 7;
 const MAX_PARTICIPANTS = 25;
 
 type ParticipantField = "name" | "location";
+type ParticipantCoordinates = { latitude: number; longitude: number };
 
 interface Participant {
   id: number;
   name: string;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 type ParticipantErrors = Partial<Record<ParticipantField, string>>;
+type ParticipantGeocodeErrors = Record<number, string>;
+
+interface GeocodingApiResponse {
+  status: string;
+  error_message?: string;
+  results: Array<{
+    geometry: {
+      location: {
+        lat: number;
+        lng: number;
+      };
+    };
+  }>;
+}
 
 declare global {
   interface Window {
@@ -69,16 +86,46 @@ function validateParticipant(participant: Participant): ParticipantErrors {
   return errors;
 }
 
+async function geocodeLocation(location: string): Promise<ParticipantCoordinates | "not_found"> {
+  const endpoint = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  endpoint.searchParams.set("address", location);
+  endpoint.searchParams.set("key", GOOGLE_MAPS_API_KEY);
+
+  const response = await fetch(endpoint.toString());
+  if (!response.ok) {
+    throw new Error("Geocoding request gaf een ongeldige HTTP response.");
+  }
+
+  const geocodingResponse = (await response.json()) as GeocodingApiResponse;
+  if (geocodingResponse.status === "ZERO_RESULTS") {
+    return "not_found";
+  }
+
+  if (geocodingResponse.status !== "OK" || geocodingResponse.results.length === 0) {
+    throw new Error(
+      geocodingResponse.error_message ??
+        `Google Geocoding API retourneerde status ${geocodingResponse.status}.`,
+    );
+  }
+
+  const coordinates = geocodingResponse.results[0].geometry.location;
+  return { latitude: coordinates.lat, longitude: coordinates.lng };
+}
+
 export default function Map() {
   const mapRef = useRef<HTMLDivElement>(null);
   const nextIdRef = useRef(2);
   const [participants, setParticipants] = useState<Participant[]>([
-    { id: 1, name: "", location: "" },
+    { id: 1, name: "", location: "", latitude: null, longitude: null },
   ]);
   const [touchedFields, setTouchedFields] = useState<
     Record<number, Partial<Record<ParticipantField, boolean>>>
   >({});
   const [hasTriedToContinue, setHasTriedToContinue] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [participantGeocodeErrors, setParticipantGeocodeErrors] = useState<ParticipantGeocodeErrors>(
+    {},
+  );
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -130,7 +177,7 @@ export default function Map() {
 
     setParticipants((previousParticipants) => [
       ...previousParticipants,
-      { id: nextIdRef.current++, name: "", location: "" },
+      { id: nextIdRef.current++, name: "", location: "", latitude: null, longitude: null },
     ]);
   }
 
@@ -143,15 +190,43 @@ export default function Map() {
       delete nextTouchedFields[idToRemove];
       return nextTouchedFields;
     });
+    setParticipantGeocodeErrors((previousErrors) => {
+      if (!(idToRemove in previousErrors)) {
+        return previousErrors;
+      }
+
+      const nextErrors = { ...previousErrors };
+      delete nextErrors[idToRemove];
+      return nextErrors;
+    });
     setContinueStatusMessage(null);
   }
 
   function handleParticipantChange(idToUpdate: number, field: ParticipantField, value: string) {
     setParticipants((previousParticipants) =>
-      previousParticipants.map((participant) =>
-        participant.id === idToUpdate ? { ...participant, [field]: value } : participant,
-      ),
+      previousParticipants.map((participant) => {
+        if (participant.id !== idToUpdate) {
+          return participant;
+        }
+
+        if (field === "location") {
+          return { ...participant, location: value, latitude: null, longitude: null };
+        }
+
+        return { ...participant, name: value };
+      }),
     );
+    if (field === "location") {
+      setParticipantGeocodeErrors((previousErrors) => {
+        if (!(idToUpdate in previousErrors)) {
+          return previousErrors;
+        }
+
+        const nextErrors = { ...previousErrors };
+        delete nextErrors[idToUpdate];
+        return nextErrors;
+      });
+    }
     setContinueStatusMessage(null);
   }
 
@@ -165,7 +240,7 @@ export default function Map() {
     }));
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setHasTriedToContinue(true);
 
@@ -174,7 +249,70 @@ export default function Map() {
       return;
     }
 
-    setContinueStatusMessage("Alle deelnemers zijn volledig ingevuld. Je kunt doorgaan.");
+    setIsGeocoding(true);
+    setContinueStatusMessage(null);
+    try {
+      const geocodeResults = await Promise.all(
+        participants.map(async (participant) => {
+          try {
+            const geocodingResult = await geocodeLocation(participant.location.trim());
+            if (geocodingResult === "not_found") {
+              return {
+                id: participant.id,
+                error: `Adres of plaats "${participant.location}" is niet gevonden.`,
+              };
+            }
+
+            return { id: participant.id, coordinates: geocodingResult };
+          } catch (error) {
+            console.error(error);
+            return {
+              id: participant.id,
+              error: `Geocoding voor "${participant.location}" is mislukt. Probeer een specifieker adres of plaats.`,
+            };
+          }
+        }),
+      );
+
+      const nextGeocodeErrors: ParticipantGeocodeErrors = {};
+      const coordinatesByParticipant = new globalThis.Map<number, ParticipantCoordinates>();
+
+      geocodeResults.forEach((result) => {
+        if (result.error) {
+          nextGeocodeErrors[result.id] = result.error;
+          return;
+        }
+
+        if (result.coordinates) {
+          coordinatesByParticipant.set(result.id, result.coordinates);
+        }
+      });
+
+      setParticipants((previousParticipants) =>
+        previousParticipants.map((participant) => {
+          const coordinates = coordinatesByParticipant.get(participant.id);
+          if (!coordinates) {
+            return { ...participant, latitude: null, longitude: null };
+          }
+
+          return { ...participant, ...coordinates };
+        }),
+      );
+      setParticipantGeocodeErrors(nextGeocodeErrors);
+
+      if (Object.keys(nextGeocodeErrors).length > 0) {
+        setContinueStatusMessage(
+          "Niet alle adressen of plaatsen konden worden gevonden. Controleer de rode meldingen per deelnemer.",
+        );
+        return;
+      }
+
+      setContinueStatusMessage(
+        "Alle deelnemers zijn geocoded. Coördinaten (latitude/longitude) zijn opgeslagen.",
+      );
+    } finally {
+      setIsGeocoding(false);
+    }
   }
 
   return (
@@ -196,6 +334,14 @@ export default function Map() {
                 const showNameError = (hasTriedToContinue || touchedFields[participant.id]?.name) && !!errors.name;
                 const showLocationError =
                   (hasTriedToContinue || touchedFields[participant.id]?.location) && !!errors.location;
+                const geocodeError = participantGeocodeErrors[participant.id];
+                const hasLocationError = showLocationError || !!geocodeError;
+                const describedByIds = [
+                  showLocationError ? `participant-location-error-${participant.id}` : undefined,
+                  geocodeError ? `participant-geocode-error-${participant.id}` : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" ");
 
                 return (
                   <>
@@ -228,10 +374,8 @@ export default function Map() {
                 value={participant.location}
                 required
                 placeholder="Bijv. Utrecht"
-                aria-invalid={showLocationError}
-                aria-describedby={
-                  showLocationError ? `participant-location-error-${participant.id}` : undefined
-                }
+                aria-invalid={hasLocationError}
+                aria-describedby={describedByIds || undefined}
                 onChange={(event) =>
                   handleParticipantChange(participant.id, "location", event.target.value)
                 }
@@ -240,6 +384,16 @@ export default function Map() {
               {showLocationError && (
                 <p className="participant-row__error" id={`participant-location-error-${participant.id}`}>
                   {errors.location}
+                </p>
+              )}
+              {!showLocationError && geocodeError && (
+                <p className="participant-row__error" id={`participant-geocode-error-${participant.id}`}>
+                  {geocodeError}
+                </p>
+              )}
+              {participant.latitude !== null && participant.longitude !== null && !geocodeError && (
+                <p className="participant-row__coordinates" role="status">
+                  Coördinaten: {participant.latitude.toFixed(6)}, {participant.longitude.toFixed(6)}
                 </p>
               )}
 
@@ -262,8 +416,8 @@ export default function Map() {
           Deelnemer toevoegen
         </button>
 
-        <button type="submit" className="participants-panel__continue">
-          Doorgaan
+        <button type="submit" className="participants-panel__continue" disabled={isGeocoding}>
+          {isGeocoding ? "Bezig met geocoderen..." : "Doorgaan"}
         </button>
 
         {!canContinue && hasTriedToContinue && (
@@ -273,7 +427,14 @@ export default function Map() {
         )}
 
         {canContinue && continueStatusMessage && (
-          <p className="participants-panel__success-message" role="status">
+          <p
+            className={
+              Object.keys(participantGeocodeErrors).length > 0
+                ? "participants-panel__validation-message"
+                : "participants-panel__success-message"
+            }
+            role={Object.keys(participantGeocodeErrors).length > 0 ? "alert" : "status"}
+          >
             {continueStatusMessage}
           </p>
         )}
