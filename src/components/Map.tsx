@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { GOOGLE_MAPS_API_KEY } from "../lib/config";
+import { calculateGeographicMidpoint } from "../lib/geo";
 
 const NETHERLANDS_CENTER = { lat: 52.1326, lng: 5.2913 };
 const NETHERLANDS_ZOOM = 7;
@@ -126,6 +127,7 @@ export default function Map() {
   const [participantGeocodeErrors, setParticipantGeocodeErrors] = useState<ParticipantGeocodeErrors>(
     {},
   );
+  const [geographicCenter, setGeographicCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -199,6 +201,7 @@ export default function Map() {
       delete nextErrors[idToRemove];
       return nextErrors;
     });
+    setGeographicCenter(null);
     setContinueStatusMessage(null);
   }
 
@@ -226,6 +229,7 @@ export default function Map() {
         delete nextErrors[idToUpdate];
         return nextErrors;
       });
+      setGeographicCenter(null);
     }
     setContinueStatusMessage(null);
   }
@@ -245,11 +249,13 @@ export default function Map() {
     setHasTriedToContinue(true);
 
     if (!canContinue) {
+      setGeographicCenter(null);
       setContinueStatusMessage(null);
       return;
     }
 
     setIsGeocoding(true);
+    setGeographicCenter(null);
     setContinueStatusMessage(null);
     try {
       const geocodeResults = await Promise.all(
@@ -307,8 +313,15 @@ export default function Map() {
         return;
       }
 
+      const midpoint = calculateGeographicMidpoint(
+        Array.from(coordinatesByParticipant.values()).map((coordinates) => ({
+          lat: coordinates.latitude,
+          lng: coordinates.longitude,
+        })),
+      );
+      setGeographicCenter(midpoint);
       setContinueStatusMessage(
-        "Alle deelnemers zijn geocoded. Coördinaten (latitude/longitude) zijn opgeslagen.",
+        `Alle deelnemers zijn geocoded. Geografisch middelpunt: ${midpoint.lat.toFixed(6)}, ${midpoint.lng.toFixed(6)}.`,
       );
     } finally {
       setIsGeocoding(false);
@@ -436,6 +449,11 @@ export default function Map() {
             role={Object.keys(participantGeocodeErrors).length > 0 ? "alert" : "status"}
           >
             {continueStatusMessage}
+          </p>
+        )}
+        {canContinue && geographicCenter && (
+          <p className="participants-panel__success-message" role="status">
+            Centrale coördinaat: {geographicCenter.lat.toFixed(6)}, {geographicCenter.lng.toFixed(6)}
           </p>
         )}
 
