@@ -275,7 +275,7 @@ export default function Map() {
       );
 
       const nextGeocodeErrors: ParticipantGeocodeErrors = {};
-      const coordinatesByParticipant = new Map<number, ParticipantCoordinates>();
+      const coordinatesByParticipant = new globalThis.Map<number, ParticipantCoordinates>();
 
       geocodeResults.forEach((result) => {
         if (result.error) {
