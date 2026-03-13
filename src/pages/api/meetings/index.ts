@@ -93,6 +93,10 @@ function isSuitablePlace(value: unknown): value is SuitablePlace {
   );
 }
 
+function isSuitablePlaceList(value: unknown): value is SuitablePlace[] {
+  return Array.isArray(value) && value.every((entry) => isSuitablePlace(entry));
+}
+
 function toCreateInput(body: unknown): MeetingSessionCreateInput | null {
   if (!isObject(body)) {
     return null;
@@ -116,6 +120,10 @@ function toCreateInput(body: unknown): MeetingSessionCreateInput | null {
     return null;
   }
 
+  if (body.suggestedPlaces !== undefined && !isSuitablePlaceList(body.suggestedPlaces)) {
+    return null;
+  }
+
   if (!isObject(body.participantRoutes)) {
     return null;
   }
@@ -136,6 +144,7 @@ function toCreateInput(body: unknown): MeetingSessionCreateInput | null {
   return {
     participants: body.participants,
     geographicCenter,
+    suggestedPlaces: body.suggestedPlaces,
     selectedPlace: body.selectedPlace,
     participantRoutes,
   };

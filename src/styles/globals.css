@@ -468,6 +468,150 @@ main {
   color: #1e293b;
 }
 
+.meeting-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.meeting-page__map {
+  width: 100%;
+  height: 100%;
+}
+
+.meeting-page__panel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+  width: min(30rem, calc(100% - 2rem));
+  max-height: calc(100% - 2rem);
+  overflow: auto;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+}
+
+.meeting-page__panel h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #0f172a;
+}
+
+.meeting-page__section {
+  border-top: 1px solid #dbe4f0;
+  padding-top: 0.6rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.meeting-page__section h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.meeting-page__section p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #1e293b;
+}
+
+.meeting-page__place-name {
+  font-weight: 700;
+}
+
+.meeting-page__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.meeting-page__list-item {
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.meeting-page__list-item button,
+.meeting-page__vote-form button {
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.meeting-page__list-item button {
+  justify-self: end;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.meeting-page__list-item--selected {
+  border-color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.meeting-page__vote-form {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.meeting-page__vote-form label {
+  font-size: 0.82rem;
+  color: #1e293b;
+}
+
+.meeting-page__vote-form input,
+.meeting-page__vote-form textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+
+.meeting-page__vote-form textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+.meeting-page__vote-form button {
+  background: #15803d;
+  color: #fff;
+}
+
+.meeting-page__vote-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.meeting-page__status,
+.meeting-page__error {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.meeting-page__status {
+  color: #166534;
+}
+
+.meeting-page__error {
+  color: #b91c1c;
+}
+
 @media (max-width: 760px) {
   .participants-panel {
     top: 0.5rem;
@@ -481,6 +625,13 @@ main {
     bottom: 0.5rem;
     width: min(22rem, calc(100% - 1rem));
     padding: 0.7rem 0.75rem;
+  }
+
+  .meeting-page__panel {
+    top: 0.5rem;
+    right: 0.5rem;
+    width: min(24rem, calc(100% - 1rem));
+    max-height: calc(100% - 1rem);
   }
 }
 
