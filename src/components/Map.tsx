@@ -634,10 +634,15 @@ export default function Map() {
     }
 
     const rawMeetingId = router.query.meeting;
-    const meetingIdFromQuery = Array.isArray(rawMeetingId) ? rawMeetingId[0] : rawMeetingId;
-    if (!meetingIdFromQuery || meetingIdFromQuery === loadedMeetingId) {
+    const meetingIdFromQueryValue = Array.isArray(rawMeetingId) ? rawMeetingId[0] : rawMeetingId;
+    if (
+      typeof meetingIdFromQueryValue !== "string" ||
+      !meetingIdFromQueryValue ||
+      meetingIdFromQueryValue === loadedMeetingId
+    ) {
       return;
     }
+    const meetingIdFromQuery = meetingIdFromQueryValue;
 
     let isCancelled = false;
 
