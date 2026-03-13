@@ -115,6 +115,17 @@ main {
   font: inherit;
 }
 
+.participant-row input[aria-invalid="true"] {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
+.participant-row__error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.8rem;
+}
+
 .participant-row button,
 .participants-panel__add {
   border: none;
@@ -136,9 +147,29 @@ main {
   color: #fff;
 }
 
+.participants-panel__continue {
+  background: #15803d;
+  color: #fff;
+}
+
 .participants-panel__add:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.participants-panel__validation-message,
+.participants-panel__success-message {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.participants-panel__validation-message {
+  color: #b91c1c;
+}
+
+.participants-panel__success-message {
+  color: #166534;
 }
 
 .participants-panel__limit-message {
