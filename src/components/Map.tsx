@@ -244,13 +244,14 @@ export default function Map() {
   }, []);
 
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google?.maps) {
+    const googleMaps = window.google?.maps;
+    if (!mapInstanceRef.current || !googleMaps) {
       return;
     }
 
     const map = mapInstanceRef.current;
     const nextMarkers: GoogleMapsMarkerInstance[] = [];
-    const bounds = new window.google.maps.LatLngBounds();
+    const bounds = new googleMaps.LatLngBounds();
     let firstMarkerPosition: LatLngLiteral | null = null;
     let markerCount = 0;
 
@@ -272,7 +273,7 @@ export default function Map() {
 
       const displayName = participant.name.trim() || `Deelnemer ${index + 1}`;
       const position = { lat: participant.latitude, lng: participant.longitude };
-      const marker = new window.google.maps.Marker({
+      const marker = new googleMaps.Marker({
         map,
         position,
         title: `Deelnemer: ${displayName}`,
@@ -290,7 +291,7 @@ export default function Map() {
     });
 
     if (geographicCenter) {
-      const midpointMarker = new window.google.maps.Marker({
+      const midpointMarker = new googleMaps.Marker({
         map,
         position: geographicCenter,
         title: `Geografisch middelpunt (${geographicCenter.lat.toFixed(6)}, ${geographicCenter.lng.toFixed(6)})`,
@@ -309,7 +310,7 @@ export default function Map() {
     suitablePlaces.forEach((place) => {
       const placeType = formatPlaceCategory(place.type);
       const labelText = `${place.name} (${placeType})`;
-      const marker = new window.google.maps.Marker({
+      const marker = new googleMaps.Marker({
         map,
         position: place.location,
         title: labelText,
