@@ -374,6 +374,9 @@ export default function Map() {
   const [activeRouteModeByParticipant, setActiveRouteModeByParticipant] = useState<
     Record<number, RouteMode>
   >({});
+  const [isProposalApproved, setIsProposalApproved] = useState(false);
+  const [meetingLink, setMeetingLink] = useState<string | null>(null);
+  const [meetingLinkStatusMessage, setMeetingLinkStatusMessage] = useState<string | null>(null);
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -400,6 +403,9 @@ export default function Map() {
     !isGeocoding &&
     !isSearchingSuitablePlaces &&
     !isCalculatingRoutes;
+  const hasRouteResults = Object.keys(participantRoutes).length > 0;
+  const canApproveProposal = hasRouteResults && selectedPlace !== null && !isCalculatingRoutes;
+  const canGenerateMeetingLink = canApproveProposal && isProposalApproved;
 
   useEffect(() => {
     let isUnmounted = false;
@@ -633,6 +639,9 @@ export default function Map() {
     setRouteStatusMessage(null);
     setIsRouteStatusError(false);
     setActiveRouteModeByParticipant({});
+    setIsProposalApproved(false);
+    setMeetingLink(null);
+    setMeetingLinkStatusMessage(null);
     setContinueStatusMessage(null);
   }
 
@@ -667,6 +676,9 @@ export default function Map() {
       setRouteStatusMessage(null);
       setIsRouteStatusError(false);
       setActiveRouteModeByParticipant({});
+      setIsProposalApproved(false);
+      setMeetingLink(null);
+      setMeetingLinkStatusMessage(null);
     }
     setContinueStatusMessage(null);
   }
@@ -693,6 +705,9 @@ export default function Map() {
       setRouteStatusMessage(null);
       setIsRouteStatusError(false);
       setActiveRouteModeByParticipant({});
+      setIsProposalApproved(false);
+      setMeetingLink(null);
+      setMeetingLinkStatusMessage(null);
       setContinueStatusMessage(null);
       return;
     }
@@ -705,6 +720,9 @@ export default function Map() {
     setRouteStatusMessage(null);
     setIsRouteStatusError(false);
     setActiveRouteModeByParticipant({});
+    setIsProposalApproved(false);
+    setMeetingLink(null);
+    setMeetingLinkStatusMessage(null);
     setContinueStatusMessage(null);
     try {
       const geocodeResults = await Promise.all(
@@ -810,6 +828,9 @@ export default function Map() {
     setRouteStatusMessage(null);
     setIsRouteStatusError(false);
     setActiveRouteModeByParticipant({});
+    setIsProposalApproved(false);
+    setMeetingLink(null);
+    setMeetingLinkStatusMessage(null);
   }
 
   function handleRouteTabChange(participantId: number, mode: RouteMode) {
@@ -837,6 +858,9 @@ export default function Map() {
     setParticipantRoutes({});
     setRouteStatusMessage(null);
     setIsRouteStatusError(false);
+    setIsProposalApproved(false);
+    setMeetingLink(null);
+    setMeetingLinkStatusMessage(null);
     try {
       const directionsService = new window.google.maps.DirectionsService();
       const routeEntries = await Promise.all(
@@ -896,6 +920,55 @@ export default function Map() {
       setIsRouteStatusError(true);
     } finally {
       setIsCalculatingRoutes(false);
+    }
+  }
+
+  function handleToggleProposalApproval() {
+    if (!canApproveProposal || !selectedPlace) {
+      return;
+    }
+
+    const nextApprovalState = !isProposalApproved;
+    setIsProposalApproved(nextApprovalState);
+    setMeetingLink(null);
+    setMeetingLinkStatusMessage(
+      nextApprovalState
+        ? `Voorstel "${selectedPlace.name}" is goedgekeurd. Je kunt nu de unieke meeting-link genereren.`
+        : "Goedkeuring ingetrokken. Keur het locatievoorstel opnieuw goed om een meeting-link te genereren.",
+    );
+  }
+
+  function handleGenerateMeetingLink() {
+    if (!canGenerateMeetingLink || !selectedPlace) {
+      return;
+    }
+
+    const meetingId =
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const meetingUrl = new URL(
+      typeof window === "undefined" ? "/" : window.location.pathname,
+      typeof window === "undefined" ? "https://meedle.local" : window.location.origin,
+    );
+    meetingUrl.searchParams.set("meeting", meetingId);
+    meetingUrl.searchParams.set("locatie", selectedPlace.id);
+
+    setMeetingLink(meetingUrl.toString());
+    setMeetingLinkStatusMessage("Unieke, deelbare meeting-link is gegenereerd.");
+  }
+
+  async function handleCopyMeetingLink() {
+    if (!meetingLink || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(meetingLink);
+      setMeetingLinkStatusMessage("Meeting-link is gekopieerd naar het klembord.");
+    } catch (error) {
+      console.error(error);
+      setMeetingLinkStatusMessage("Kopiëren van de meeting-link is mislukt. Kopieer de URL handmatig.");
     }
   }
 
@@ -1104,7 +1177,7 @@ export default function Map() {
           </section>
         )}
 
-        {Object.keys(participantRoutes).length > 0 && selectedPlace && (
+        {hasRouteResults && selectedPlace && (
           <section className="participants-panel__routes-results" aria-label="Routes per deelnemer">
             <h3>Route-opties per deelnemer</h3>
             <ul>
@@ -1179,6 +1252,60 @@ export default function Map() {
                 );
               })}
             </ul>
+          </section>
+        )}
+
+        {hasRouteResults && selectedPlace && (
+          <section
+            className="participants-panel__approval"
+            aria-label="Voorstelgoedkeuring en meeting-linkgeneratie"
+          >
+            <h3>Voorstel goedkeuren en meeting-link delen</h3>
+            <p className="participants-panel__route-target">
+              Locatievoorstel: {selectedPlace.name} ({selectedPlace.address})
+            </p>
+            <button
+              type="button"
+              className="participants-panel__approval-button"
+              onClick={handleToggleProposalApproval}
+              disabled={!canApproveProposal}
+            >
+              {isProposalApproved ? "Goedkeuring intrekken" : "Locatievoorstel goedkeuren"}
+            </button>
+            <button
+              type="button"
+              className="participants-panel__meeting-link-button"
+              onClick={handleGenerateMeetingLink}
+              disabled={!canGenerateMeetingLink}
+            >
+              Genereer unieke, deelbare meeting-link
+            </button>
+            {meetingLink && (
+              <p className="participants-panel__meeting-link-url" role="status">
+                <a href={meetingLink}>{meetingLink}</a>
+              </p>
+            )}
+            {meetingLink && (
+              <button
+                type="button"
+                className="participants-panel__meeting-link-copy"
+                onClick={handleCopyMeetingLink}
+              >
+                Kopieer meeting-link
+              </button>
+            )}
+            {meetingLinkStatusMessage && (
+              <p
+                className={
+                  canGenerateMeetingLink
+                    ? "participants-panel__success-message"
+                    : "participants-panel__validation-message"
+                }
+                role={canGenerateMeetingLink ? "status" : "alert"}
+              >
+                {meetingLinkStatusMessage}
+              </p>
+            )}
           </section>
         )}
 

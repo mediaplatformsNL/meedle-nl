@@ -329,7 +329,8 @@ main {
 }
 
 .participants-panel__routes,
-.participants-panel__routes-results {
+.participants-panel__routes-results,
+.participants-panel__approval {
   border-top: 1px solid #dbe4f0;
   padding-top: 0.6rem;
   display: grid;
@@ -337,7 +338,8 @@ main {
 }
 
 .participants-panel__routes h3,
-.participants-panel__routes-results h3 {
+.participants-panel__routes-results h3,
+.participants-panel__approval h3 {
   margin: 0;
   font-size: 0.95rem;
   color: #0f172a;
@@ -363,6 +365,47 @@ main {
 .participants-panel__routes-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.participants-panel__approval-button,
+.participants-panel__meeting-link-button,
+.participants-panel__meeting-link-copy {
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.participants-panel__approval-button {
+  background: #7c3aed;
+}
+
+.participants-panel__meeting-link-button {
+  background: #0369a1;
+}
+
+.participants-panel__meeting-link-copy {
+  background: #0f766e;
+}
+
+.participants-panel__approval-button:disabled,
+.participants-panel__meeting-link-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.participants-panel__meeting-link-url {
+  margin: 0;
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.participants-panel__meeting-link-url a {
+  color: #1d4ed8;
+  text-decoration: underline;
 }
 
 .participants-panel__routes-results ul {
