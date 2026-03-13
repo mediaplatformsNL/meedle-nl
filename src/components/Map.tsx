@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { GOOGLE_MAPS_API_KEY } from "../lib/config";
 import { calculateGeographicMidpoint } from "../lib/geo";
+import { findSuitablePlacesNearMidpoint, type SuitablePlace } from "../lib/places";
 
 const NETHERLANDS_CENTER = { lat: 52.1326, lng: 5.2913 };
 const NETHERLANDS_ZOOM = 7;
@@ -31,6 +32,21 @@ interface GeocodingApiResponse {
       };
     };
   }>;
+}
+
+function formatPlaceCategory(category: SuitablePlace["type"]): string {
+  switch (category) {
+    case "restaurant":
+      return "Restaurant";
+    case "cafe":
+      return "Café";
+    case "hotel":
+      return "Hotel";
+    case "vergaderruimte":
+      return "Vergaderruimte";
+    default:
+      return category;
+  }
 }
 
 declare global {
@@ -124,10 +140,12 @@ export default function Map() {
   >({});
   const [hasTriedToContinue, setHasTriedToContinue] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [isSearchingSuitablePlaces, setIsSearchingSuitablePlaces] = useState(false);
   const [participantGeocodeErrors, setParticipantGeocodeErrors] = useState<ParticipantGeocodeErrors>(
     {},
   );
   const [geographicCenter, setGeographicCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [suitablePlaces, setSuitablePlaces] = useState<SuitablePlace[]>([]);
   const [continueStatusMessage, setContinueStatusMessage] = useState<string | null>(null);
   const hasReachedParticipantLimit = participants.length >= MAX_PARTICIPANTS;
   const participantErrors = useMemo(
@@ -202,6 +220,7 @@ export default function Map() {
       return nextErrors;
     });
     setGeographicCenter(null);
+    setSuitablePlaces([]);
     setContinueStatusMessage(null);
   }
 
@@ -230,6 +249,7 @@ export default function Map() {
         return nextErrors;
       });
       setGeographicCenter(null);
+      setSuitablePlaces([]);
     }
     setContinueStatusMessage(null);
   }
@@ -250,12 +270,14 @@ export default function Map() {
 
     if (!canContinue) {
       setGeographicCenter(null);
+      setSuitablePlaces([]);
       setContinueStatusMessage(null);
       return;
     }
 
     setIsGeocoding(true);
     setGeographicCenter(null);
+    setSuitablePlaces([]);
     setContinueStatusMessage(null);
     try {
       const geocodeResults = await Promise.all(
@@ -320,9 +342,29 @@ export default function Map() {
         })),
       );
       setGeographicCenter(midpoint);
-      setContinueStatusMessage(
-        `Alle deelnemers zijn geocoded. Geografisch middelpunt: ${midpoint.lat.toFixed(6)}, ${midpoint.lng.toFixed(6)}.`,
-      );
+
+      try {
+        setIsSearchingSuitablePlaces(true);
+        const places = await findSuitablePlacesNearMidpoint(midpoint);
+        setSuitablePlaces(places);
+
+        if (places.length === 0) {
+          setContinueStatusMessage(
+            `Alle deelnemers zijn geocoded. Geografisch middelpunt: ${midpoint.lat.toFixed(6)}, ${midpoint.lng.toFixed(6)}. Geen geschikte locaties gevonden binnen 3500 meter.`,
+          );
+        } else {
+          setContinueStatusMessage(
+            `Alle deelnemers zijn geocoded. Geografisch middelpunt: ${midpoint.lat.toFixed(6)}, ${midpoint.lng.toFixed(6)}. ${places.length} geschikte locaties gevonden binnen 3500 meter.`,
+          );
+        }
+      } catch (error) {
+        console.error(error);
+        setContinueStatusMessage(
+          `Geografisch middelpunt berekend (${midpoint.lat.toFixed(6)}, ${midpoint.lng.toFixed(6)}), maar zoeken naar geschikte locaties is mislukt.`,
+        );
+      } finally {
+        setIsSearchingSuitablePlaces(false);
+      }
     } finally {
       setIsGeocoding(false);
     }
@@ -429,8 +471,16 @@ export default function Map() {
           Deelnemer toevoegen
         </button>
 
-        <button type="submit" className="participants-panel__continue" disabled={isGeocoding}>
-          {isGeocoding ? "Bezig met geocoderen..." : "Doorgaan"}
+        <button
+          type="submit"
+          className="participants-panel__continue"
+          disabled={isGeocoding || isSearchingSuitablePlaces}
+        >
+          {isGeocoding
+            ? "Bezig met geocoderen..."
+            : isSearchingSuitablePlaces
+              ? "Zoeken naar geschikte locaties..."
+              : "Doorgaan"}
         </button>
 
         {!canContinue && hasTriedToContinue && (
@@ -455,6 +505,26 @@ export default function Map() {
           <p className="participants-panel__success-message" role="status">
             Centrale coördinaat: {geographicCenter.lat.toFixed(6)}, {geographicCenter.lng.toFixed(6)}
           </p>
+        )}
+        {canContinue && suitablePlaces.length > 0 && (
+          <section className="participants-panel__places" aria-label="Geschikte locaties">
+            <h3>Geschikte locaties</h3>
+            <ul>
+              {suitablePlaces.map((place) => (
+                <li key={place.id}>
+                  <p className="participants-panel__place-name">{place.name}</p>
+                  <p>{place.address}</p>
+                  <p>
+                    Type: {formatPlaceCategory(place.type)}
+                    {place.rating !== null ? ` · Rating: ${place.rating.toFixed(1)}` : " · Rating: onbekend"}
+                  </p>
+                  <p>
+                    Locatie: {place.location.lat.toFixed(6)}, {place.location.lng.toFixed(6)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         {hasReachedParticipantLimit && (
