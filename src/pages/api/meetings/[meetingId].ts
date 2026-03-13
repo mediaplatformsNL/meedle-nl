@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getMeetingSession } from "../../../../lib/meeting-session-store";
-import type { MeetingSessionData } from "../../../../lib/meeting-session";
+import { getMeetingSession } from "../../../lib/meeting-session-store";
+import type { MeetingSessionData } from "../../../lib/meeting-session";
 
 function getMeetingIdFromQuery(queryValue: string | string[] | undefined): string | null {
   if (!queryValue) {

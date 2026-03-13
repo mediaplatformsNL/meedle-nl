@@ -1,15 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import {
   createMeetingSession,
-} from "../../../../lib/meeting-session-store";
+} from "../../../lib/meeting-session-store";
 import type {
   CreateMeetingSessionResponse,
   MeetingLatLngLiteral,
   MeetingSessionCreateInput,
   MeetingSessionParticipant,
   MeetingSessionParticipantRouteSet,
-} from "../../../../lib/meeting-session";
-import type { SuitablePlace } from "../../../../lib/places";
+} from "../../../lib/meeting-session";
+import type { SuitablePlace } from "../../../lib/places";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
